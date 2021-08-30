@@ -155,7 +155,7 @@ class Bot {
         // Dont set last heartbeat to Date.now()-interval*random;
         // if hb is called now, it would send heartbeat on a multiple of the update interval.
         thiss.lastHeartbeat = 0;
-        console.log("[hb] Starting new Heartbeat thread. This should be the only place to do so.")
+        console.log("[hb] Starting new Heartbeat thread. This should be the only place to do so, outside of manual heartbeat thread restart.")
         setTimeout(()=>thiss.heartbeat(), thiss.interval*Math.random());
       } else
       // Send Heartbeat ASAP
@@ -203,7 +203,13 @@ class Bot {
   }
   // fix heart beat
   fhb = function() {
-    lastHeartbeat = 0;
+    // Mark heartbeat threads to die.
+    this.hasHeartbeat = false;
+    // Wait until two intervals have passed; this should ensure they are dead.
+    setTimeout(()=>{
+      console.log("[hb] Starting new Heartbeat thread to replace existing ones. There should be only one heartbeat thread running now.");
+      this.heartbeat();
+    }, 2*heartbeatUpdateInterval);
   }
   // reconnect
   rc = function() {
