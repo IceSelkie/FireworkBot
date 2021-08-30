@@ -1,5 +1,5 @@
 const WebSocket = require("ws").WebSocket;
-const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":"TOKEN"}};
+const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(require("fs").readFileSync("token.json").toString())).token}};
 const heartbeatUpdateInterval = 500;
 
 
