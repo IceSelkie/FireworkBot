@@ -1,6 +1,6 @@
 const WebSocket = require("ws").WebSocket;
 const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":"macos","$browser":"node","$device":"firework"},"token":"TOKEN"}};
-
+const heartbeatUpdateInterval = 500;
 
 
 
@@ -24,7 +24,9 @@ hasInterest = function(string) {
 class Bot {
   constructor() {
     this.ws = null;
-    this.lastHeartbeat = null;
+    this.lastSequence = null;
+    this.lastHeartbeat = 0;
+    this.heartbeatShouldBeRunning = false;
     this.types = new Map();
     this.contacts = [];
     this.print = false;
@@ -45,18 +47,25 @@ class Bot {
   }
 
   // Occasionally a double heartbeat gets generated with 2 threads running with the same id or something...
-  heartbeat = function(thread) {
-    if (thread !== ""+this.heartbeatThread) {
-      console.log("[hb] Planned heartbeat for heartbeatThread "+thread+" already complete. Stopping thread...");
-      return;
-    }
+  heartbeat = function() {
     if (!this.connectionAlive) {
-      console.log("[hb] Planned heartbeat for heartbeatThread "+thread+" cancelled. Connection is dead.");
+      console.log("[hb] Planned heartbeat cancelled. Connection is dead.");
+      this.heartbeatShouldBeRunning = false;
+      this.lastHeartbeat = 0;
       return;
     }
-    console.log("[hb] Ba-Bum. Heartbeat sent for message "+this.lastHeartbeat+". (thread"+thread+")")
-    this.ws.send(JSON.stringify({"op":1,"d": this.lastHeartbeat},null));
-    setTimeout(()=>this.heartbeat(thread),this.interval);
+    if (!this.heartbeatShouldBeRunning) {
+      console.log("[hb] Heartbeat should not be running. Stopping heartbeat.");
+      this.heartbeatShouldBeRunning = false;
+      this.lastHeartbeat = 0;
+      return;
+    }
+    if (Date.now()>=this.lastHeartbeat+this.interval) {
+      console.log("[hb] Ba-Bum. Heartbeat sent for message "+this.lastSequence+".");
+      this.ws.send(JSON.stringify({"op":1,"d": this.lastSequence},null));
+      this.lastHeartbeat = Date.now();
+    }
+    setTimeout(()=>this.heartbeat(),500);
   }
   online = function() {
     // Update Presence
@@ -97,8 +106,8 @@ class Bot {
         thiss.send(identify)
       else {
         if (last !== null)
-          thiss.lastHeartbeat = last;
-        thiss.send({"op":6,"d":{"token":identify.d.token,"session_id":sid,"seq":thiss.lastHeartbeat}})
+          thiss.lastSequence = last;
+        thiss.send({"op":6,"d":{"token":identify.d.token,"session_id":sid,"seq":thiss.lastSequence}})
       }
     });
 
@@ -121,7 +130,7 @@ class Bot {
       let messagestr = JSON.stringify(message,null,2);
       if (thiss.print) console.log(messagestr);
 
-      if (message.s===null) {
+      if (message.s===null || message.t==='RESUMED') {
         console.log("Recieved message (none/heartbeat-ack)");
         console.log(message)
       } else {
@@ -132,18 +141,27 @@ class Bot {
       }
       // heap.set(message.s, message)
       if (message.s!=null)
-        thiss.lastHeartbeat = message.s;
+        thiss.lastSequence = message.s;
 
       // Hello -> Set Heartbeat Interval
       if (message.op === 10) {
         thiss.interval = message.d.heartbeat_interval;
-        console.log("[hb] Heartbeat interval set to "+thiss.interval+"ms. Starting heartbeat thread: "+(++thiss.heartbeatThread))
-        setTimeout(()=>thiss.heartbeat(""+thiss.heartbeatThread), thiss.interval*Math.random());
+
+        if (thiss.heartbeatShouldBeRunning)
+          console.error("[hb] A heartbeat thread already exists, and yet one is about to be started! This should never happen!");
+
+        thiss.heartbeatShouldBeRunning = true;
+        // trigger the heartbeat after waiting long enough.
+        // Dont set last heartbeat to Date.now()-interval*random;
+        // if hb is called now, it would send heartbeat on a multiple of the update interval.
+        thiss.lastHeartbeat = 0;
+        console.log("[hb] Starting new Heartbeat thread. This should be the only place to do so, outside of manual heartbeat thread restart.")
+        setTimeout(()=>thiss.heartbeat(), thiss.interval*Math.random());
       } else
       // Send Heartbeat ASAP
       if (message.op === 1) {
-        console.log("[hb] Early heartbeat requested. Starting heartbeat thread: "+(++thiss.heartbeatThread))
-        thiss.heartbeat(""+thiss.heartbeatThread)
+        console.log("[hb] Early heartbeat requested. Should trigger in the next half second.")
+        thiss.lastHeartbeat = 0;
       } else
       // Resume Successful
       if (message.op === 7) {
@@ -177,16 +195,29 @@ class Bot {
   }
   term = function() {
     this.ws.terminate()
-    this.heartbeatThread+=1000;
+    this.heartbeatShouldBeRunning = false;
   }
   dc = function() {
-    this.heartbeatThread+=1000;
+    this.heartbeatShouldBeRunning = false;
     this.ws.close(1000)
   }
   // fix heart beat
   fhb = function() {
-    console.log("[hb] Attempting to fix heartbeat. Allowed thread bumped from "+this.heartbeatThread+" to "+(++this.heartbeatThread)+".");
-    this.heartbeat(""+this.heartbeatThread)
+    // Mark heartbeat threads to die.
+    this.heartbeatShouldBeRunning = false;
+    // Wait until two intervals have passed; this should ensure they are dead.
+    setTimeout(()=>{
+      console.log("[hb] Starting new Heartbeat thread to replace existing ones. There should be only one heartbeat thread running now.");
+      this.heartbeat();
+    }, 2*heartbeatUpdateInterval);
+  }
+  // reconnect
+  rc = function() {
+    if (this.connectionAlive) {
+      this.term();
+      setTimeout(()=>this.start(this.sessionID), 2*heartbeatUpdateInterval);
+    } else
+      this.start(this.sessionID);
   }
 }
 
