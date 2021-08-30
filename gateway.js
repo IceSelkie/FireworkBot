@@ -85,10 +85,7 @@ class Bot {
     // limit of 100 per request.
   }
 
-  
-  g = function(s) {
-    console.log(JSON.stringify(this.contacts[s],null,2));
-  }
+
 
   start = function(sid=null, last=null) {
     let thiss = this;
@@ -172,6 +169,11 @@ class Bot {
         console.log("Dispatch recieved: "+message.t+" #"+thiss.types.get(message.t) + " id="+message.s + hasInterest(messagestr))
       }
     });
+  }
+
+
+  g = function(s) {
+    console.log(JSON.stringify(this.contacts[s],null,2));
   }
   term = function() {
     this.ws.terminate()
