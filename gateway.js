@@ -138,9 +138,9 @@ class Bot {
         console.log("Recieved message (none/heartbeat-ack)");
         console.log(message)
       } else {
-        while (thiss.contacts.length<message.s)
+        while (thiss.contacts.length<message.s-1)
           thiss.contacts.push(null);
-        thiss.contacts[message.s] = message;
+        thiss.contacts[message.s-1] = message;
         // console.log("Recieved message #"+message.s + hasInterest(messagestr));
       }
       // heap.set(message.s, message)
@@ -195,7 +195,7 @@ class Bot {
 
 
   g = function(s) {
-    console.log(JSON.stringify(this.contacts[s],null,2));
+    console.log(JSON.stringify(this.contacts[s-1],null,2));
   }
   term = function() {
     this.ws.terminate()
