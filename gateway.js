@@ -28,7 +28,7 @@ class Bot {
 
   send = function(message) {
     console.log("Sending:")
-    console.log(message)
+    console.log(JSON.stringify(message,null,2))
     if (this.connectionAlive)
       this.ws.send(JSON.stringify(message,null));
     else
@@ -86,6 +86,9 @@ class Bot {
   idle = function() {
     // Update Presence
     this.send({"op":3,"d":{"status":"idle","afk":true,"activities":[],"since":null}});
+  }
+  setStatus = function(string) {
+    this.send({"op":3,"d":{"since":91879201,"activities":[{"name":string,"type":3}],"status":"online","afk":false}})
   }
   rgm = function(gid, query = '', limit = 0) {
     // Request guild members
@@ -225,5 +228,7 @@ class Bot {
   }
 }
 
+
+bot = new Bot();
 
 
