@@ -26,7 +26,7 @@ class Bot {
     this.ws = null;
     this.lastSequence = null;
     this.lastHeartbeat = 0;
-    this.hasHeartbeat = false;
+    this.heartbeatShouldBeRunning = false;
     this.types = new Map();
     this.contacts = [];
     this.print = false;
@@ -50,13 +50,13 @@ class Bot {
   heartbeat = function() {
     if (!this.connectionAlive) {
       console.log("[hb] Planned heartbeat cancelled. Connection is dead.");
-      this.hasHeartbeat = false;
+      this.heartbeatShouldBeRunning = false;
       this.lastHeartbeat = 0;
       return;
     }
-    if (!this.hasHeartbeat) {
+    if (!this.heartbeatShouldBeRunning) {
       console.log("[hb] Heartbeat should not be running. Stopping heartbeat.");
-      this.hasHeartbeat = false;
+      this.heartbeatShouldBeRunning = false;
       this.lastHeartbeat = 0;
       return;
     }
@@ -147,10 +147,10 @@ class Bot {
       if (message.op === 10) {
         thiss.interval = message.d.heartbeat_interval;
 
-        if (thiss.hasHeartbeat)
+        if (thiss.heartbeatShouldBeRunning)
           console.error("[hb] A heartbeat thread already exists, and yet one is about to be started! This should never happen!");
 
-        thiss.hasHeartbeat = true;
+        thiss.heartbeatShouldBeRunning = true;
         // trigger the heartbeat after waiting long enough.
         // Dont set last heartbeat to Date.now()-interval*random;
         // if hb is called now, it would send heartbeat on a multiple of the update interval.
@@ -195,16 +195,16 @@ class Bot {
   }
   term = function() {
     this.ws.terminate()
-    this.hasHeartbeat = false;
+    this.heartbeatShouldBeRunning = false;
   }
   dc = function() {
-    this.hasHeartbeat = false;
+    this.heartbeatShouldBeRunning = false;
     this.ws.close(1000)
   }
   // fix heart beat
   fhb = function() {
     // Mark heartbeat threads to die.
-    this.hasHeartbeat = false;
+    this.heartbeatShouldBeRunning = false;
     // Wait until two intervals have passed; this should ensure they are dead.
     setTimeout(()=>{
       console.log("[hb] Starting new Heartbeat thread to replace existing ones. There should be only one heartbeat thread running now.");
