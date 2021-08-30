@@ -5,17 +5,6 @@ const heartbeatUpdateInterval = 500;
 
 
 
-hasInterest = function(string) {
-  let ret = [];
-  if (string.includes("870750872504786944")) ret.push("F");
-  if (string.includes("163718745888522241")) ret.push("S");
-
-  if (ret.length==0) return "";
-  let retstr = " [";
-  for (let i=0; i<ret.length-1; i++)
-    retstr+=ret[i]+",";
-  return retstr+ret[ret.length-1]+"]"
-}
 
 
 
@@ -67,6 +56,21 @@ class Bot {
     }
     setTimeout(()=>this.heartbeat(),500);
   }
+
+  hasInterest = function(string) {
+    let ret = [];
+    if (this.self && string.includes(this.self.id)) ret.push("THIS BOT");
+    if (string.includes("163718745888522241")) ret.push("SELKIE");
+
+    if (ret.length==0) return "";
+    let retstr = " [";
+    for (let i=0; i<ret.length-1; i++)
+      retstr+=ret[i]+",";
+    return retstr+ret[ret.length-1]+"]"
+  }
+
+
+
   online = function() {
     // Update Presence
     this.send({"op":3,"d":{"status":"online","afk":false,"activities":[],"since":null}});
@@ -184,7 +188,7 @@ class Bot {
           console.log("Connection READY: Logged in as "+thiss.self.username+"#"+thiss.self.discriminator+" <@"+thiss.self.id+"> "+(thiss.self.bot?"[bot]":"<<selfbot>>") + " -> "+thiss.sessionID)
         }
 
-        console.log("Dispatch recieved: "+message.t+" #"+thiss.types.get(message.t) + " id="+message.s + hasInterest(messagestr))
+        console.log("Dispatch recieved: "+message.t+" #"+thiss.types.get(message.t) + " id="+message.s + thiss.hasInterest(messagestr))
       }
     });
   }
