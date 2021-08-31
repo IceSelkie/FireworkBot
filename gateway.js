@@ -1,5 +1,7 @@
 const WebSocket = require("ws").WebSocket;
-const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(require("fs").readFileSync("token.json").toString())).token}};
+const https = require("https");
+const fs = require("fs");
+const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("token.json").toString())).token}};
 const heartbeatUpdateInterval = 500;
 
 
@@ -132,8 +134,10 @@ class Bot {
     });
 
     this.ws.on('message', function incoming(message) {
+      let message_time = Date.now();
       // console.log('recieved:');
       message = JSON.parse(message);
+      message.time = message_time;
       let messagestr = JSON.stringify(message,null,2);
       if (thiss.print) console.log(messagestr);
 
@@ -230,5 +234,36 @@ class Bot {
 
 
 bot = new Bot();
+
+
+
+
+discordRequest = function(path, data=null, method="GET") {
+  return new Promise((resolve,reject)=>{
+    if (method==="GET"&&data!==null)
+      method = "POST";
+    let opts = {"hostname": "discord.com","port": 443,"headers":{"content-type":"application/json","authorization":identify.d.token},
+      "path": path,
+      "method": method
+    }
+    let req = https.request(opts,
+      res=>{
+        let data = '';
+        res.setEncoding('utf8');
+        console.log('Headers:\n'+JSON.stringify(res.headers,null,2));
+        res.on('data',part=>data+=part);
+        res.on('end',()=>resolve({"ret":res.statusCode,"res":data}));
+      }).on('error',err=>reject(err));
+    if (data !== null) {
+      if (typeof data !== 'string')
+        data = JSON.stringify(data,null);
+      req.write(data);
+    }
+    req.end();
+  });
+}
+
+
+
 
 
