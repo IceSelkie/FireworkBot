@@ -26,6 +26,7 @@ class Bot {
     this.interval = null;
     this.sessionID = null;
     this.self = null;
+    this.modules = [];
   }
 
   send = function(message) {
@@ -105,6 +106,9 @@ class Bot {
 
 
 
+  addModule = function(module) {
+    this.modules.push(module);
+  }
   start = function(sid=null, last=null) {
     let thiss = this;
     this.ws = new WebSocket('wss://gateway.discord.gg/?v=9&encoding=json');
@@ -196,6 +200,7 @@ class Bot {
         }
 
         console.log("Dispatch recieved: "+message.t+" #"+thiss.types.get(message.t) + " id="+message.s + thiss.hasInterest(messagestr))
+        thiss.modules.forEach(a => {if (a.onDispatch) a.onDispatch(thiss, message);});
       }
     });
   }
@@ -243,16 +248,18 @@ discordRequest = function(path, data=null, method="GET") {
     if (method==="GET"&&data!==null)
       method = "POST";
     let opts = {"hostname": "discord.com","port": 443,"headers":{"content-type":"application/json","authorization":identify.d.token},
-      "path": path,
+      "path": "/api/v9/"+path,
       "method": method
     }
+    console.log(opts);
     let req = https.request(opts,
       res=>{
         let data = '';
         res.setEncoding('utf8');
-        console.log('Headers:\n'+JSON.stringify(res.headers,null,2));
+        // console.log('Headers:\n'+JSON.stringify(res.headers,null,2));
         res.on('data',part=>data+=part);
-        res.on('end',()=>resolve({"ret":res.statusCode,"res":data}));
+        // TODO: send ratelimit data
+        res.on('end',()=>resolve({"ret":res.statusCode,"res":data,"ratelimit_data":null}));
       }).on('error',err=>reject(err));
     if (data !== null) {
       if (typeof data !== 'string')
@@ -262,6 +269,50 @@ discordRequest = function(path, data=null, method="GET") {
     req.end();
   });
 }
+sendMessage = async function(channel_id, message_object) {
+  // TODO:
+  //   - check ratelimit
+  //   - if ratelimit hit; wait and try again.
+  //   - message send queue, bucketed by channel
+  if (channel_id == null)
+    return "channel_id was null or undefined.";
+  let type = typeof channel_id;
+  if (type !== 'string' && type !== 'bigint' && type !== 'number') {
+    let ret = [];
+    for (let i=0; i<channel_id.length; i++) {
+      let temp = await sendMessage(channel_id[i],message_object);
+      ret.push(temp);
+    }
+    return ret;
+  }
+  else
+    return discordRequest("channels/"+channel_id+"/messages",JSON.stringify(message_object));
+}
+
+
+
+
+
+modules = {
+  joinMessages: {
+    postChannel: ["870500800613470248","870868727820849183"],
+    messages: ['{USER} is here to kick ass and chew scavenger! And {USER} is all out of scavenger.',
+               '{USER} is here. Did they bring snacks?'],
+    genJoinMessage: u=> "<@"+u.id+"> has joined the server.\n> "+modules.joinMessages.messages[Math.floor(Math.random() * modules.joinMessages.messages.length)].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
+    onDispatch: (bot,msg) => {
+      if (msg.t === "GUILD_MEMBER_ADD") {
+
+        let user = msg.d.user; // {username,public_flags,id,discriminator,avatar}
+        let message = {content: modules.joinMessages.genJoinMessage(user)};
+
+        sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
+
+        discordRequest(path,JSON.stringify(message)).then(a=>console.log(a));
+      }
+    }
+  }
+}
+bot.addModule(modules.joinMessages);
 
 
 
