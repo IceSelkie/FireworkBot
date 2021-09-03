@@ -5,6 +5,10 @@ const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platfo
 const heartbeatUpdateInterval = 500;
 
 
+// privilaged intents codes:
+//  w/o       w/
+// 32509    32767
+
 
 
 
@@ -251,7 +255,7 @@ discordRequest = function(path, data=null, method="GET") {
       "path": "/api/v9/"+path,
       "method": method
     }
-    console.log(opts);
+    console.log(JSON.stringify({method:opts.method,path:opts.path,data:JSON.stringify(data)}));
     let req = https.request(opts,
       res=>{
         let data = '';
@@ -274,6 +278,8 @@ sendMessage = async function(channel_id, message_object) {
   //   - check ratelimit
   //   - if ratelimit hit; wait and try again.
   //   - message send queue, bucketed by channel
+  if (typeof message_object === "string")
+    message_object = {"content":message_object};
   if (channel_id == null)
     return "channel_id was null or undefined.";
   let type = typeof channel_id;
@@ -294,21 +300,31 @@ sendMessage = async function(channel_id, message_object) {
 
 
 modules = {
-  joinMessages: {
-    postChannel: ["870500800613470248","870868727820849183"],
-    messages: ['{USER} is here to kick ass and chew scavenger! And {USER} is all out of scavenger.',
-               '{USER} is here. Did they bring snacks?'],
-    genJoinMessage: u=> "<@"+u.id+"> has joined the server.\n> "+modules.joinMessages.messages[Math.floor(Math.random() * modules.joinMessages.messages.length)].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
-    onDispatch: (bot,msg) => {
-      if (msg.t === "GUILD_MEMBER_ADD") {
+  userMemory: null,
+  joinMessages: null,
+  pingLogin: null
+}
 
-        let user = msg.d.user; // {username,public_flags,id,discriminator,avatar}
-        let message = {content: modules.joinMessages.genJoinMessage(user)};
 
-        sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
+modules.joinMessages = {
+  postChannel: ["870500800613470248","870868727820849183"],
+  messages: ['{USER} is here to kick ass and chew scavenger! And {USER} is all out of scavenger.',
+             'Please welcome {USER} to Pyrrhia!',
+             'Please welcome {USER} to Pantela!',
+             "Welcome to the dragon's den, {USER}!",
+             'Welcome, {USER}! We wish you the power of the wings of fire!',
+             'The __Eye of Onyx__ fortold that _The One_ is coming! And now here is {USER}! Maybe {USER} is _The One_...?',
+             '{USER} is here. Did they bring snacks?',
+             '{USER} is here now. Will this keep Darkstalker away?'],
+  genJoinMessage: u=> "<@"+u.id+"> has joined the server.\n> "+modules.joinMessages.messages[Math.floor(Math.random() * modules.joinMessages.messages.length)].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
+  onDispatch: (bot,msg) => {
+    if (msg.t === "GUILD_MEMBER_ADD") {
 
-        discordRequest(path,JSON.stringify(message)).then(a=>console.log(a));
-      }
+      let user = msg.d.user; // {username,public_flags,id,discriminator,avatar}
+      let message = {content: modules.joinMessages.genJoinMessage(user)};
+
+      sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
+
     }
   }
 }
