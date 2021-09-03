@@ -328,7 +328,111 @@ modules.joinMessages = {
     }
   }
 }
-bot.addModule(modules.joinMessages);
+
+modules.inviteLogging = {
+  inviteMap: new Map(),
+  inviteLoggingChannel: "870500800613470248",
+  onDispatch: (bot,msg) => {
+    let map = modules.inviteLogging.inviteMap;
+    if (msg.t === "INVITE_CREATE")
+      sendMessage(modules.inviteLogging.inviteLoggingChannel,{ // audit logs: 750509276707160126
+        embeds:[{color:5797096,title:"Invite Created",
+          description:"<@"+msg.d.inviter.id+"> created invite code `"+msg.d.code+"` for <#"+msg.d.channel_id+">."
+            +'\n\n'+(msg.d.max_uses===0?"∞":msg.d.max_uses)+" uses"
+            +" • "
+            +"expires "+(msg.d.max_age==0?"never":"<t:"+(Math.floor(msg.time/1000)+msg.d.max_age)+":R>")+"."
+        }]
+      });
+    if (msg.t === "INVITE_DELETE") {
+      sendMessage(modules.inviteLogging.inviteLoggingChannel,{
+        embeds:[{color:5797096,title:"Invite Deleted",
+          description:"<@"+map.get(msg.d.code).user.id+">'s invite code `"+msg.d.code+"` for <#"+msg.d.channel_id+"> was deleted."
+                    +'\n\n'+map.get(msg.d.code).uses+'/'+(map.get(msg.d.code).max_uses===0?"∞":map.get(msg.d.code).max_uses)+" uses"
+                    +" • "
+                    +"expires "+(map.get(msg.d.code).max_age==0?"never":"<t:"+(Math.floor(map.get(msg.d.code).time/1000)+map.get(msg.d.code).max_age)+":R>")+"."
+        }]
+      });
+      map.delete(msg.d.code);
+    }
+    let invites_promise;
+    if (msg.t === "GUILD_MEMBER_ADD") {
+      // On join, check invites, find difference, and that was which invite was used.
+      invites_promise = discordRequest("guilds/"+msg.d.guild_id+"/invites");
+      invites_promise.then(
+        response=>{
+          let candidates = []
+          JSON.parse(response.res).forEach(
+            a=>{
+              console.log("Considering "+a.code);
+              console.log("in list: "+map.has(a.code));
+              if (map.has(a.code)) console.log("pre: "+map.get(a.code).uses);
+              console.log("post: "+a.uses);
+              console.log("bool: "+(map.has(a.code) && a.uses!=map.get(a.code).uses));
+              if (map.has(a.code) && a.uses!=map.get(a.code).uses)
+                candidates.push({code:a.code,uses:a.uses,max_uses:a.max_uses,max_age:a.max_age,time:Date.parse(a.created_at),inviter_id:a.inviter.id});
+            });
+          console.log("Candidate Invite Links:");
+          console.log(candidates);
+          if (candidates.length === 0)
+            sendMessage(modules.inviteLogging.inviteLoggingChannel,{embeds:[{color:5797096,title:"Invite Used",
+              description:"<@"+msg.d.user.id+"> joined the server... But no invite code was found to have been used...?"}]});
+          else if (candidates.length > 10) {
+            sendMessage(modules.inviteLogging.inviteLoggingChannel,{embeds:[{color:5797096,title:"Invite Used",
+              description:"<@"+msg.d.user.id+"> joined the server... But more than 10 possible invites were found to have been used...?"}]});
+          } else {
+            let message_object = {embeds:[]}
+            for (let i=0; i<candidates.length; i++)
+              message_object.embeds.push(
+                {color:5797096,title:"Invite Used",
+                  description:"<@"+msg.d.user.id+"> used invite code `"+candidates[i].code+"` by <@"+candidates[i].inviter_id+">!"
+                    +'\n\n'+candidates[i].uses+'/'+(candidates[i].max_uses===0?"∞":candidates[i].max_uses)+" uses"
+                    +" • "
+                    +"expires "+(candidates[i].max_age==0?"never":"<t:"+(Math.floor(candidates[i].time/1000)+candidates[i].max_age)+":R>")+"."
+                }
+              );
+            sendMessage(modules.inviteLogging.inviteLoggingChannel,message_object).then(a=>console.log(a));
+          }
+        });
+    }
+
+    let gid;
+    if (msg.t === "GUILD_CREATE") gid = msg.d.id;
+    if (msg.t === "INVITE_CREATE") gid = msg.d.guild_id;
+
+    if (msg.t === "GUILD_CREATE" || msg.t === "INVITE_CREATE")
+      invites_promise=discordRequest("guilds/"+gid+"/invites");
+
+    // Update invites cache.
+    if (msg.t === "GUILD_CREATE" || msg.t === "INVITE_CREATE" || msg.t === "GUILD_MEMBER_ADD") {
+      invites_promise.then(
+        response => {
+          let invites = JSON.parse(response.res);
+          if (invites.message && invites.code && invites.code === 50013) {
+            console.log("No perms to view invites for this guild. Skipping.")
+          } else {
+            invites.forEach(
+              a=>{
+                map.set(a.code,
+                  {
+                    code:a.code,
+                    user:a.inviter,
+                    max_uses:a.max_uses,
+                    uses:a.uses,
+                    max_age:a.max_age,
+                    time:Date.parse(a.created_at),
+                    guild_id:a.guild.id,
+                    channel_id:a.channel.id,
+                    channel_name:a.channel.name
+                  });
+              });
+          }
+        });
+    }
+  }
+}
+
+bot.addModule(modules.joinMessages)
+bot.addModule(modules.inviteLogging)
 
 
 
