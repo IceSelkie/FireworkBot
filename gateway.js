@@ -518,6 +518,23 @@ modules.threadLogging = {
   }
 }
 
+tempModules = {}
+tempModules.createThread = {
+  onDispatch: (bot,msg) => {
+    if (msg.t === "MESSAGE_CREATE" && msg.d.author.id === "163718745888522241"){
+      try {
+        // let obj = JSON.parse(msg.d.content);
+        // console.log(obj);
+        if (/^<@870750872504786944> createThread /.test(msg.d.content))
+          console.log("Thread create request received.")
+      } catch (err) {
+      }
+    }
+  }
+};
+
+
+
 bot.addModule(modules.userMemory)
 bot.addModule(modules.joinMessages)
 bot.addModule(modules.inviteLogging)
@@ -525,6 +542,6 @@ bot.addModule(modules.disboardReminder)
 bot.addModule(modules.threadLogging)
 
 
-
+bot.addModule(tempModules.createThread)
 
 
