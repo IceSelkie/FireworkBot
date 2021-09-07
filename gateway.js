@@ -282,11 +282,15 @@ bot = new Bot();
 
 
 discordRequest = function(path, data=null, method="GET") {
+  // console.log("Discord Request called with path of:")
+  // console.log(path)
+  // console.log("Discord Request called with data of:")
+  // console.log(data)
   return new Promise((resolve,reject)=>{
     if (method==="GET"&&data!==null)
       method = "POST";
     let opts = {"hostname": "discord.com","port": 443,"headers":{"content-type":"application/json","authorization":identify.d.token},
-      "path": "/api/v9/"+path,
+      "path": (path.includes("https://")?path:"/api/v9/"+path),
       "method": method
     }
     console.log(JSON.stringify({method:opts.method,path:opts.path,data:JSON.stringify(data)}));
