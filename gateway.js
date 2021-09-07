@@ -3,6 +3,7 @@ const https = require("https");
 const fs = require("fs");
 const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("token.json").toString())).token}};
 const heartbeatUpdateInterval = 500;
+const reconnectInterval = 4000;
 
 
 // privilaged intents codes:
@@ -10,7 +11,8 @@ const heartbeatUpdateInterval = 500;
 // 32509    32767
 
 
-
+oldlog = console.log;
+console.log= (a) =>{oldlog("["+new Date().toISOString().substring(11,19)+"]",a)}
 
 
 
@@ -137,7 +139,16 @@ class Bot {
       console.log(d);
 
       if (errcode === 1001 && buffer.toString() === "Discord WebSocket requesting client reconnect.") {
+        console.log("Discord server load balancing... Reconnecting...");
         thiss.start(thiss.sessionID);
+      }
+      if (errcode === 1001 && buffer.toString() === "CloudFlare WebSocket proxy restarting") {
+        console.log("CloudFlare proxy load balancing... Reconnecting...");
+        thiss.start(thiss.sessionID);
+      }
+      if (errcode === 1006) {
+        console.log("Unexpected client side disconnect... Reconnecting in 4 seconds...");
+        setTimeout(()=>thiss.start(thiss.sessionID), reconnectInterval);
       }
     });
 
@@ -152,15 +163,14 @@ class Bot {
       if (message.s===null || message.t==='RESUMED') {
         console.log("Recieved message (none/heartbeat-ack)");
         console.log(message)
-      } else {
+      }
+      if (message.s!=null) {
         while (thiss.contacts.length<message.s-1)
           thiss.contacts.push(null);
         thiss.contacts[message.s-1] = message;
         // console.log("Recieved message #"+message.s + hasInterest(messagestr));
-      }
-      // heap.set(message.s, message)
-      if (message.s!=null)
         thiss.lastSequence = message.s;
+      }
 
       // Hello -> Set Heartbeat Interval
       if (message.op === 10) {
@@ -214,7 +224,8 @@ class Bot {
     console.log(JSON.stringify(this.contacts[s-1],null,2));
   }
   term = function() {
-    this.ws.terminate()
+    // this.ws.terminate()
+    this.ws.close(4321)
     this.heartbeatShouldBeRunning = false;
   }
   dc = function() {
@@ -239,6 +250,19 @@ class Bot {
     } else
       this.start(this.sessionID);
   }
+  // // reconnect elsewhere. Loses a lot of history. Not recommended.
+  // rcc = function() {
+  //   this.term();
+
+  //   setTimeout(()=>{
+  //     console.log("// -------- //");
+  //     console.log("// To reconnect from a new node instance, past in these commands with the same bot token.");
+  //     console.log(".load gateway.js");
+  //     console.log("bot.start('"+this.sessionID+"', "+this.lastSequence+")");
+  //     console.log("// -------- //");
+  //   }, 4*heartbeatUpdateInterval);
+  // }
+}
 }
 
 
