@@ -340,7 +340,8 @@ sendMessage = async function(channel_id, message_object) {
 modules = {
   userMemory: null,
   joinMessages: null,
-  pingLogin: null
+  inviteLogging: null,
+  disboardReminder: null
 }
 
 modules.userMemory = {
@@ -476,9 +477,31 @@ modules.inviteLogging = {
   }
 }
 
+modules.disboardReminder = {
+  lastBump: null,
+  onDispatch: (bot, msg) => {
+    if (msg.t === "MESSAGE_CREATE" && msg.d.author.username === "DISBOARD" && msg.d.author.bot === true) {
+      console.log("Message from disboard.")
+      if (msg.d.content.length === 0 && msg.d.attachments.length === 0 && msg.d.embeds.length === 1) {
+        console.log("Message is embed only.")
+        let e = msg.d.embeds[0];
+        if (e.url === "https://disboard.org/" && e.color === 2406327 && e.description.includes(">, \n      Bump done :thumbsup:\n      Check it on DISBOARD: https://disboard.org/")) {
+          console.log("Message matches embed.")
+          // now we can be pretty sure a bump was done.
+          modules.disboardReminder.lastBump = Date.now();
+          console.log("Disboard bumped! Timer set for 2 hours.")
+          setTimeout(()=>sendMessage("870868315793391686","Bump was done 1 hour and 59 minutes ago.\n\n<@163718745888522241>"),2*60*60*1000-60*1000);
+          setTimeout(()=>sendMessage("870868315793391686","Bump was done 1 minutes ago.\n\n<@163718745888522241>"),60*1000);
+        }
+      }
+    }
+  }
+}
+
 bot.addModule(modules.userMemory)
 bot.addModule(modules.joinMessages)
 bot.addModule(modules.inviteLogging)
+bot.addModule(modules.disboardReminder)
 
 
 
