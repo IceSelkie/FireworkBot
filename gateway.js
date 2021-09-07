@@ -341,7 +341,8 @@ modules = {
   userMemory: null,
   joinMessages: null,
   inviteLogging: null,
-  disboardReminder: null
+  disboardReminder: null,
+  threadLogging: null
 }
 
 modules.userMemory = {
@@ -498,10 +499,30 @@ modules.disboardReminder = {
   }
 }
 
+modules.threadLogging = {
+  onDispatch: (bot, msg) => {
+    if (msg.t === "THREAD_CREATE") {
+      sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Thread Created",
+              description:"<#"+msg.d.id+"> was created in <#"+msg.d.parent_id+">.\n\nThread by <@"+msg.d.owner_id+">."}]});
+    }
+    if (msg.t === "THREAD_DELETE") {
+      sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Thread Created",
+              description:"<#"+msg.d.id+"> was created in <#"+msg.d.parent_id+">.\n\nThread by <@"+msg.d.owner_id+">."}]});
+    }
+    if (msg.t === "THREAD_UPDATE") {
+      sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Thread Modified",
+              description:"<#"+msg.d.id+"> in <#"+msg.d.parent_id+"> was modified in some way."
+              +"\n(This could be title change, or the thread getting archived!)"
+              +"\n\nThread originally by <@"+msg.d.owner_id+">."}]});
+    }
+  }
+}
+
 bot.addModule(modules.userMemory)
 bot.addModule(modules.joinMessages)
 bot.addModule(modules.inviteLogging)
 bot.addModule(modules.disboardReminder)
+bot.addModule(modules.threadLogging)
 
 
 
