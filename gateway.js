@@ -4,6 +4,7 @@ const fs = require("fs");
 const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("token.json").toString())).token}};
 const heartbeatUpdateInterval = 500;
 const reconnectInterval = 4000;
+const userMap = new Map();
 
 
 // privilaged intents codes:
@@ -68,7 +69,7 @@ class Bot {
 
   hasInterest = function(string) {
     let ret = [];
-    if (this.self && string.includes(this.self.id)) ret.push("THIS BOT");
+    if (this.self && string.includes(this.self.id)) ret.push("FIREWORK");
     if (string.includes("163718745888522241")) ret.push("SELKIE");
 
     if (ret.length==0) return "";
@@ -96,6 +97,7 @@ class Bot {
     // Update Presence
     this.send({"op":3,"d":{"status":"idle","afk":true,"activities":[],"since":null}});
   }
+  // "Ice Selkie ✿#4064 code the Firework Bot!"
   setStatus = function(string) {
     this.send({"op":3,"d":{"since":91879201,"activities":[{"name":string,"type":3}],"status":"online","afk":false}})
   }
@@ -263,10 +265,18 @@ class Bot {
   //   }, 4*heartbeatUpdateInterval);
   // }
 }
+go = function() {
+  bot.start();
+  setTimeout(()=>{bot.setStatus("Ice Selkie ✿#4064 code the Firework Bot!");}, 2000);
 }
-
-
 bot = new Bot();
+
+
+
+
+
+
+
 
 
 
@@ -329,12 +339,23 @@ modules = {
   pingLogin: null
 }
 
+modules.userMemory = {
+  onDispatch: (bot,msg)=>{
+    if (msg.t === "GUILD_CREATE") {
+      msg.d.members.forEach(a=>{
+        if (!userMap.has(a.user.id)) {
+          userMap.set(a.user.id,a.user);
+        }
+      })
+    }
+  }
+}
 
 modules.joinMessages = {
   postChannel: ["870500800613470248","870868727820849183"],
-  messages: ['{USER} is here to kick ass and chew scavenger! And {USER} is all out of scavenger.',
+  messages: ['{USER} is here to kick butt and chew scavenger! And {USER} is all out of scavenger.',
              'Please welcome {USER} to Pyrrhia!',
-             'Please welcome {USER} to Pantela!',
+             'Please welcome {USER} to Pantala!',
              "Welcome to the dragon's den, {USER}!",
              'Welcome, {USER}! We wish you the power of the wings of fire!',
              'The __Eye of Onyx__ fortold that _The One_ is coming! And now here is {USER}! Maybe {USER} is _The One_...?',
@@ -355,11 +376,11 @@ modules.joinMessages = {
 
 modules.inviteLogging = {
   inviteMap: new Map(),
-  inviteLoggingChannel: "870500800613470248",
+  inviteLoggingChannel: "750509276707160126",
   onDispatch: (bot,msg) => {
     let map = modules.inviteLogging.inviteMap;
     if (msg.t === "INVITE_CREATE")
-      sendMessage(modules.inviteLogging.inviteLoggingChannel,{ // audit logs: 750509276707160126
+      sendMessage(modules.inviteLogging.inviteLoggingChannel,{
         embeds:[{color:5797096,title:"Invite Created",
           description:"<@"+msg.d.inviter.id+"> created invite code `"+msg.d.code+"` for <#"+msg.d.channel_id+">."
             +'\n\n'+(msg.d.max_uses===0?"∞":msg.d.max_uses)+" uses"
@@ -387,11 +408,7 @@ modules.inviteLogging = {
           let candidates = []
           JSON.parse(response.res).forEach(
             a=>{
-              console.log("Considering "+a.code);
-              console.log("in list: "+map.has(a.code));
               if (map.has(a.code)) console.log("pre: "+map.get(a.code).uses);
-              console.log("post: "+a.uses);
-              console.log("bool: "+(map.has(a.code) && a.uses!=map.get(a.code).uses));
               if (map.has(a.code) && a.uses!=map.get(a.code).uses)
                 candidates.push({code:a.code,uses:a.uses,max_uses:a.max_uses,max_age:a.max_age,time:Date.parse(a.created_at),inviter_id:a.inviter.id});
             });
@@ -455,6 +472,7 @@ modules.inviteLogging = {
   }
 }
 
+bot.addModule(modules.userMemory)
 bot.addModule(modules.joinMessages)
 bot.addModule(modules.inviteLogging)
 
