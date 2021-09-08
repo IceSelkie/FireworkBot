@@ -13,7 +13,9 @@ const userMap = new Map();
 
 
 oldlog = console.log;
-console.log= (a) =>{oldlog("["+new Date().toISOString().substring(11,19)+"]",a)}
+console.log= (a) =>{oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a)}
+olderr = console.error;
+console.error= (a) =>{olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a)}
 
 
 
@@ -36,11 +38,11 @@ class Bot {
     this.modules = [];
   }
 
-  send = function(message) {
+  send = function(webhookPacket) {
     console.log("Sending:")
-    console.log(JSON.stringify(message,null,2))
+    console.log(JSON.stringify(webhookPacket,null,2))
     if (this.connectionAlive)
-      this.ws.send(JSON.stringify(message,null));
+      this.ws.send(JSON.stringify(webhookPacket,null));
     else
       console.log("Failed to send. Connection is dead.")
   }
@@ -132,20 +134,22 @@ class Bot {
       }
     });
 
-    this.ws.on('close', function close(errcode,buffer,c,d) {
+    this.ws.on('close', function close(errcode,buffer) {
       thiss.connectionAlive = false;
       console.log('disconnected:');
       console.log(errcode);
       console.log('"'+buffer.toString()+'"');
-      console.log(c);
-      console.log(d);
 
-      if (errcode === 1001 && buffer.toString() === "Discord WebSocket requesting client reconnect.") {
-        console.log("Discord server load balancing... Reconnecting...");
-        thiss.start(thiss.sessionID);
-      }
-      if (errcode === 1001 && buffer.toString() === "CloudFlare WebSocket proxy restarting") {
-        console.log("CloudFlare proxy load balancing... Reconnecting...");
+      sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
+        "Firework bot has lost connection: "+errcode+"\n> '"+buffer.toString()+"'");
+
+      if (errcode === 1001) {
+        if (buffer.toString() === "Discord WebSocket requesting client reconnect.")
+          console.log("Discord server load balancing... Reconnecting...");
+        else if (buffer.toString() === "CloudFlare WebSocket proxy restarting")
+          console.log("CloudFlare proxy load balancing... Reconnecting...");
+        else
+          console.log("Unknown 1001... Reconnecting...");
         thiss.start(thiss.sessionID);
       }
       if (errcode === 1006) {
@@ -491,8 +495,11 @@ modules.disboardReminder = {
           // now we can be pretty sure a bump was done.
           modules.disboardReminder.lastBump = Date.now();
           console.log("Disboard bumped! Timer set for 2 hours.")
-          setTimeout(()=>sendMessage("870868315793391686","Bump was done 1 hour and 59 minutes ago.\n\n<@163718745888522241>"),2*60*60*1000-60*1000);
-          setTimeout(()=>sendMessage("870868315793391686","Bump was done 1 minutes ago.\n\n<@163718745888522241>"),60*1000);
+          let bumpLink = "https://discord.com/channels/"+msg.d.guild_id+"/"+msg.d.channel_id+"/"+id;
+          sendMessage("870868315793391686",{embeds:[{description:"A [bump]("+bumpLink+") was just done in {GUILD_NAME} by {REGEX.GROUPS[1]}"}]});
+          setTimeout(()=>sendMessage(msg.d.channel_id,{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [up here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
+          setTimeout(()=>sendMessage("870868315793391686",{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
+          setTimeout(()=>sendMessage("870868315793391686","A new bump can now be done."),2*60*60*1000);
         }
       }
     }
@@ -514,6 +521,11 @@ modules.threadLogging = {
               description:"<#"+msg.d.id+"> in <#"+msg.d.parent_id+"> was modified in some way."
               +"\n(This could be title change, or the thread getting archived!)"
               +"\n\nThread originally by <@"+msg.d.owner_id+">."}]});
+    }
+    if (msg.t === "GUILD_UPDATE") {
+      sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Server Modified",
+              description:"The server was modified in some way."
+              +"\n(This could be rename, server icon change, owner change, or similar!)"}]});
     }
   }
 }
