@@ -107,16 +107,6 @@ class Bot {
     this.wsSend({"op":3,"d":{"since":91879201,"activities":[{"name":string,"type":3}],"status":"online","afk":false}});
   }
 
-  rgm = function(gid, query = '', limit = 0) {
-    // Request guild members
-    // limit of 0 = 1000 for no query
-    //              or 100 for query
-    //              or 100 for specific users.
-  }
-  rgm1 = function(gid, snowflakes) {
-    // request guild members specific
-    // limit of 100 per request.
-  }
 
 
 
@@ -131,113 +121,119 @@ class Bot {
     this.ws.on('close', (errcode, buffer) => this.wsOnClose(this, errcode, buffer));
     this.ws.on('message', (message) => this.wsOnMessage(this, message));
   }
-    wsOnOpen = function(thiss, sid, last) {
-      thiss.connectionAlive = true;
-      if (sid === null)
-        thiss.wsSend(identify)
-      else {
-        if (last !== null)
-          thiss.lastSequence = last;
-        thiss.wsSend({"op":6,"d":{"token":identify.d.token,"session_id":sid,"seq":thiss.lastSequence}})
-      }
+  wsOnOpen = function(thiss, sid, last) {
+    thiss.connectionAlive = true;
+    if (sid === null)
+      thiss.wsSend(identify)
+    else {
+      if (last !== null)
+        thiss.lastSequence = last;
+      thiss.wsSend({"op":6,"d":{"token":identify.d.token,"session_id":sid,"seq":thiss.lastSequence}})
+    }
+    // ["870500800613470248","870868727820849183","883172908418084954"]
+    //   WOFCS embed playgr   twstjm firw testin   hyec firework logs
+    if (sid)
+      sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],"Firework bot is reconnecting.");
+    else
+      sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],"Firework bot has connected.");
+  }
+
+  wsOnClose = function(thiss, errcode, buffer) {
+    thiss.connectionAlive = false;
+    console.log('disconnected:');
+    console.log(errcode);
+    console.log('"'+buffer.toString()+'"');
+
+    sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
+      "Firework bot has lost connection: "+errcode+"\n> '"+buffer.toString()+"'");
+
+    if (errcode === 1001) {
+      if (buffer.toString() === "Discord WebSocket requesting client reconnect.")
+        console.log("Discord server load balancing... Reconnecting...");
+      else if (buffer.toString() === "CloudFlare WebSocket proxy restarting")
+        console.log("CloudFlare proxy load balancing... Reconnecting...");
+      else
+        console.log("Unknown 1001... Reconnecting...");
+      thiss.start(thiss.sessionID);
+    }
+    if (errcode === 1006) {
+      console.log("Unexpected client side disconnect... Reconnecting in 4 seconds...");
+      setTimeout(()=>thiss.start(thiss.sessionID), reconnectInterval);
+    }
+  }
+  wsOnMessage = function(thiss, message) {
+    let message_time = Date.now();
+    // console.log('recieved:');
+    message = JSON.parse(message);
+    message.time = message_time;
+    let messagestr = JSON.stringify(message,null,2);
+    if (thiss.print) console.log(messagestr);
+
+    if (message.s===null || message.t==='RESUMED') {
+      console.log("Recieved message (none/heartbeat-ack)");
+      console.log(message)
+    }
+    if (message.s!=null) {
+      while (thiss.contacts.length<message.s-1)
+        thiss.contacts.push(null);
+      thiss.contacts[message.s-1] = message;
+      // console.log("Recieved message #"+message.s + hasInterest(messagestr));
+      thiss.lastSequence = message.s;
     }
 
-    wsOnClose = function(thiss, errcode, buffer) {
-      thiss.connectionAlive = false;
-      console.log('disconnected:');
-      console.log(errcode);
-      console.log('"'+buffer.toString()+'"');
+    // Hello -> Set Heartbeat Interval
+    if (message.op === 10) {
+      thiss.interval = message.d.heartbeat_interval;
 
-      sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
-        "Firework bot has lost connection: "+errcode+"\n> '"+buffer.toString()+"'");
+      if (thiss.heartbeatShouldBeRunning)
+        console.error("[hb] A heartbeat thread already exists, and yet one is about to be started! This should never happen!");
 
-      if (errcode === 1001) {
-        if (buffer.toString() === "Discord WebSocket requesting client reconnect.")
-          console.log("Discord server load balancing... Reconnecting...");
-        else if (buffer.toString() === "CloudFlare WebSocket proxy restarting")
-          console.log("CloudFlare proxy load balancing... Reconnecting...");
-        else
-          console.log("Unknown 1001... Reconnecting...");
-        thiss.start(thiss.sessionID);
-      }
-      if (errcode === 1006) {
-        console.log("Unexpected client side disconnect... Reconnecting in 4 seconds...");
-        setTimeout(()=>thiss.start(thiss.sessionID), reconnectInterval);
-      }
-    }
-    wsOnMessage = function(thiss, message) {
-      let message_time = Date.now();
-      // console.log('recieved:');
-      message = JSON.parse(message);
-      message.time = message_time;
-      let messagestr = JSON.stringify(message,null,2);
-      if (thiss.print) console.log(messagestr);
+      thiss.heartbeatShouldBeRunning = true;
+      // trigger the heartbeat after waiting long enough.
+      // Dont set last heartbeat to Date.now()-interval*random;
+      // if hb is called now, it would send heartbeat on a multiple of the update interval.
+      thiss.lastHeartbeat = 0;
+      console.log("[hb] Starting new Heartbeat thread. This should be the only place to do so, outside of manual heartbeat thread restart.")
+      setTimeout(()=>thiss.heartbeat(), thiss.interval*Math.random());
+    } else
+    // Send Heartbeat ASAP
+    if (message.op === 1) {
+      console.log("[hb] Early heartbeat requested. Should trigger in the next half second.")
+      thiss.lastHeartbeat = 0;
+    } else
+    // Resume Successful
+    if (message.op === 7) {
+      console.log("Successful reconnection!")
+    } else
+    // Resume Failed
+    if (message.op === 9) {
+      console.error("Reconnect failed. Please start a new session.")
+      thiss.dc();
+    } else
+    // Standard Dipatch
+    if (message.op === 0) {
+      if (!thiss.types.has(message.t))
+        thiss.types.set(message.t,0);
+      thiss.types.set(message.t,thiss.types.get(message.t)+1);
 
-      if (message.s===null || message.t==='RESUMED') {
-        console.log("Recieved message (none/heartbeat-ack)");
-        console.log(message)
-      }
-      if (message.s!=null) {
-        while (thiss.contacts.length<message.s-1)
-          thiss.contacts.push(null);
-        thiss.contacts[message.s-1] = message;
-        // console.log("Recieved message #"+message.s + hasInterest(messagestr));
-        thiss.lastSequence = message.s;
+      if (message.t === "READY") {
+        thiss.sessionID = message.d.session_id;
+        thiss.self = message.d.user;
+        console.log("Connection READY: Logged in as "+thiss.self.username+"#"+thiss.self.discriminator+" <@"+thiss.self.id+"> "+(thiss.self.bot?"[bot]":"<<selfbot>>") + " -> "+thiss.sessionID)
       }
 
-      // Hello -> Set Heartbeat Interval
-      if (message.op === 10) {
-        thiss.interval = message.d.heartbeat_interval;
+      console.log("Dispatch recieved: "+message.t+" #"+thiss.types.get(message.t) + " id="+message.s + thiss.hasInterest(messagestr))
 
-        if (thiss.heartbeatShouldBeRunning)
-          console.error("[hb] A heartbeat thread already exists, and yet one is about to be started! This should never happen!");
-
-        thiss.heartbeatShouldBeRunning = true;
-        // trigger the heartbeat after waiting long enough.
-        // Dont set last heartbeat to Date.now()-interval*random;
-        // if hb is called now, it would send heartbeat on a multiple of the update interval.
-        thiss.lastHeartbeat = 0;
-        console.log("[hb] Starting new Heartbeat thread. This should be the only place to do so, outside of manual heartbeat thread restart.")
-        setTimeout(()=>thiss.heartbeat(), thiss.interval*Math.random());
-      } else
-      // Send Heartbeat ASAP
-      if (message.op === 1) {
-        console.log("[hb] Early heartbeat requested. Should trigger in the next half second.")
-        thiss.lastHeartbeat = 0;
-      } else
-      // Resume Successful
-      if (message.op === 7) {
-        console.log("Successful reconnection!")
-      } else
-      // Resume Failed
-      if (message.op === 9) {
-        console.error("Reconnect failed. Please start a new session.")
-        thiss.dc();
-      } else
-      // Standard Dipatch
-      if (message.op === 0) {
-        if (!thiss.types.has(message.t))
-          thiss.types.set(message.t,0);
-        thiss.types.set(message.t,thiss.types.get(message.t)+1);
-
-        if (message.t === "READY") {
-          thiss.sessionID = message.d.session_id;
-          thiss.self = message.d.user;
-          console.log("Connection READY: Logged in as "+thiss.self.username+"#"+thiss.self.discriminator+" <@"+thiss.self.id+"> "+(thiss.self.bot?"[bot]":"<<selfbot>>") + " -> "+thiss.sessionID)
+      thiss.modules.forEach(a => {
+        try {
+          if (a.onDispatch) a.onDispatch(thiss, message);
+        } catch (err) {
+          console.error(err);
+          sendMessage("883172908418084954",err.toString())
         }
-
-        console.log("Dispatch recieved: "+message.t+" #"+thiss.types.get(message.t) + " id="+message.s + thiss.hasInterest(messagestr))
-
-        thiss.modules.forEach(a => {
-          try {
-            if (a.onDispatch) a.onDispatch(thiss, message);
-          } catch (err) {
-            console.error(err);
-            sendMessage("883172908418084954",err.toString())
-          }
-        });
-      }
+      });
     }
+  }
 
 
   g = function(s) {
@@ -251,16 +247,6 @@ class Bot {
   dc = function() {
     this.heartbeatShouldBeRunning = false;
     this.ws.close(1000)
-  }
-  // fix heart beat
-  fhb = function() {
-    // Mark heartbeat threads to die.
-    this.heartbeatShouldBeRunning = false;
-    // Wait until two intervals have passed; this should ensure they are dead.
-    setTimeout(()=>{
-      console.log("[hb] Starting new Heartbeat thread to replace existing ones. There should be only one heartbeat thread running now.");
-      this.heartbeat();
-    }, 2*heartbeatUpdateInterval);
   }
   // reconnect
   rc = function() {
@@ -666,6 +652,7 @@ bot.addModule(modules.inviteLogging)
 bot.addModule(modules.disboardReminder)
 bot.addModule(modules.threadLogging)
 bot.addModule(modules.upTime)
+bot.addModule(modules.embeds)
 
 
 bot.addModule(tempModules.createThread)
