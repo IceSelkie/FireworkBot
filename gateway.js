@@ -140,6 +140,7 @@ class Bot {
           thiss.lastSequence = last;
         thiss.wsSend({"op":6,"d":{"token":identify.d.token,"session_id":sid,"seq":thiss.lastSequence}})
       }
+    }
 
     wsOnClose = function(thiss, errcode, buffer) {
       thiss.connectionAlive = false;
