@@ -36,9 +36,11 @@ class Bot {
     this.sessionID = null;
     this.self = null;
     this.modules = [];
+    this.timeStart = Date.now();
+    this.timeLastReconnect = null;
   }
 
-  send = function(webhookPacket) {
+  wsSend = function(webhookPacket) {
     console.log("Sending:")
     console.log(JSON.stringify(webhookPacket,null,2))
     if (this.connectionAlive)
@@ -85,24 +87,25 @@ class Bot {
 
   online = function() {
     // Update Presence
-    this.send({"op":3,"d":{"status":"online","afk":false,"activities":[],"since":null}});
+    this.wsSend({"op":3,"d":{"status":"online","afk":false,"activities":[],"since":null}});
   }
   dnd = function() {
     // Update Presence
-    this.send({"op":3,"d":{"status":"dnd","afk":false,"activities":[],"since":null}});
+    this.wsSend({"op":3,"d":{"status":"dnd","afk":false,"activities":[],"since":null}});
   }
   invis = function() {
     // Update Presence
-    this.send({"op":3,"d":{"status":"invisible","afk":false,"activities":[],"since":null}});
+    this.wsSend({"op":3,"d":{"status":"invisible","afk":false,"activities":[],"since":null}});
   }
   idle = function() {
     // Update Presence
-    this.send({"op":3,"d":{"status":"idle","afk":true,"activities":[],"since":null}});
+    this.wsSend({"op":3,"d":{"status":"idle","afk":true,"activities":[],"since":null}});
   }
   // "Ice Selkie ✿#4064 code the Firework Bot!"
   setStatus = function(string) {
-    this.send({"op":3,"d":{"since":91879201,"activities":[{"name":string,"type":3}],"status":"online","afk":false}})
+    this.wsSend({"op":3,"d":{"since":91879201,"activities":[{"name":string,"type":3}],"status":"online","afk":false}});
   }
+
   rgm = function(gid, query = '', limit = 0) {
     // Request guild members
     // limit of 0 = 1000 for no query
@@ -120,21 +123,24 @@ class Bot {
     this.modules.push(module);
   }
   start = function(sid=null, last=null) {
-    let thiss = this;
     this.ws = new WebSocket('wss://gateway.discord.gg/?v=9&encoding=json');
+    if (sid!=null) this.timeLastReconnect = Date.now();
 
-    this.ws.on('open', function open() {
+    this.ws.on('open', () => this.wsOnOpen(this, sid, last));
+    this.ws.on('close', (errcode, buffer) => this.wsOnClose(this, errcode, buffer));
+    this.ws.on('message', (message) => this.wsOnMessage(this, message));
+  }
+    wsOnOpen = function(thiss, sid, last) {
       thiss.connectionAlive = true;
       if (sid === null)
-        thiss.send(identify)
+        thiss.wsSend(identify)
       else {
         if (last !== null)
           thiss.lastSequence = last;
-        thiss.send({"op":6,"d":{"token":identify.d.token,"session_id":sid,"seq":thiss.lastSequence}})
+        thiss.wsSend({"op":6,"d":{"token":identify.d.token,"session_id":sid,"seq":thiss.lastSequence}})
       }
-    });
 
-    this.ws.on('close', function close(errcode,buffer) {
+    wsOnClose = function(thiss, errcode, buffer) {
       thiss.connectionAlive = false;
       console.log('disconnected:');
       console.log(errcode);
@@ -156,9 +162,8 @@ class Bot {
         console.log("Unexpected client side disconnect... Reconnecting in 4 seconds...");
         setTimeout(()=>thiss.start(thiss.sessionID), reconnectInterval);
       }
-    });
-
-    this.ws.on('message', function incoming(message) {
+    }
+    wsOnMessage = function(thiss, message) {
       let message_time = Date.now();
       // console.log('recieved:');
       message = JSON.parse(message);
@@ -220,10 +225,17 @@ class Bot {
         }
 
         console.log("Dispatch recieved: "+message.t+" #"+thiss.types.get(message.t) + " id="+message.s + thiss.hasInterest(messagestr))
-        thiss.modules.forEach(a => {if (a.onDispatch) a.onDispatch(thiss, message);});
+
+        thiss.modules.forEach(a => {
+          try {
+            if (a.onDispatch) a.onDispatch(thiss, message);
+          } catch (err) {
+            console.error(err);
+            sendMessage("883172908418084954",err.toString())
+          }
+        });
       }
-    });
-  }
+    }
 
 
   g = function(s) {
@@ -346,7 +358,8 @@ modules = {
   joinMessages: null,
   inviteLogging: null,
   disboardReminder: null,
-  threadLogging: null
+  threadLogging: null,
+  upTime: null
 }
 
 modules.userMemory = {
@@ -530,6 +543,53 @@ modules.threadLogging = {
   }
 }
 
+modules.upTime = {
+  onDispatch: (bot,msg) => {
+    if (msg.t === "MESSAGE_CREATE" && msg.d.content === "<@"+bot.self.id+"> uptime") {
+      let now = Date.now();
+      let online = modules.upTime.timeDurationToString(bot.timeStart, now);
+      let reconnect = modules.upTime.timeDurationToString(bot.timeLastReconnect, now);
+      reconnect = (reconnect==null)?"never":reconnect+" ago";
+      sendMessage(msg.d.channel_id,"Firework bot has been online for "+online+". (last reconnect: "+reconnect+")")
+    }
+  },
+  timeDurationToString: (start, end, depth=2, descriptors) => {
+    if (start==null)
+      return null;
+    if (descriptors==null)
+      descriptors = ['ms','s','m','hr','d'];
+    if (depth==null)
+      depth = 2;
+
+    let duration = start;
+    if (end!=null)
+      duration = end-start;
+
+    if (duration==0)
+      return "0ms";
+    let isNeg = duration<0?"-":"";
+
+    let ms = duration%1000;
+    duration = Math.floor(duration/1000);
+    let sec = duration%60;
+    duration = Math.floor(duration/60);
+    let min = duration%60;
+    duration = Math.floor(duration/60);
+    let hr = duration%24;
+    duration = Math.floor(duration/24);
+    let day = duration;
+
+    if (day>0)
+      return isNeg+day+"d"+hr+"h";
+    if (hr>0)
+      return isNeg+hr+"h"+min+"m";
+    if (min>0)
+      return isNeg+min+"m"+sec+"s";
+    ms = ""+ms;
+    ms = "0".repeat(3-ms.length)+ms;
+    return isNeg+sec+"."+ms+"s";
+  }
+}
 tempModules = {}
 tempModules.createThread = {
   onDispatch: (bot,msg) => {
@@ -552,6 +612,7 @@ bot.addModule(modules.joinMessages)
 bot.addModule(modules.inviteLogging)
 bot.addModule(modules.disboardReminder)
 bot.addModule(modules.threadLogging)
+bot.addModule(modules.upTime)
 
 
 bot.addModule(tempModules.createThread)
