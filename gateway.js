@@ -29,12 +29,13 @@ class Bot {
     this.heartbeatShouldBeRunning = false;
     this.types = new Map();
     this.contacts = [];
-    this.print = false;
-    this.heartbeatThread = 0;
+    this.print = false; // print all dispatch to logs
+    // this.send = true; // false to disable sending messages via sendMessage method
+    // this.heartbeatThread = 0;
     this.connectionAlive = false;
     this.interval = null;
     this.sessionID = null;
-    this.self = null;
+    this.self = null; // the user object for this bot.
     this.modules = [];
     this.timeStart = Date.now();
     this.timeLastReconnect = null;
@@ -309,7 +310,9 @@ discordRequest = function(path, data=null, method="GET") {
       "path": (path.includes("https://")?path:"/api/v9/"+path),
       "method": method
     }
-    console.log(JSON.stringify({method:opts.method,path:opts.path,data:JSON.stringify(data)}));
+    if (typeof data !== "string")
+      data = JSON.stringify(data);
+    console.log(JSON.stringify({method:opts.method,path:opts.path,data:data}));
     let req = https.request(opts,
       res=>{
         let data = '';
@@ -508,7 +511,7 @@ modules.disboardReminder = {
           // now we can be pretty sure a bump was done.
           modules.disboardReminder.lastBump = Date.now();
           console.log("Disboard bumped! Timer set for 2 hours.")
-          let bumpLink = "https://discord.com/channels/"+msg.d.guild_id+"/"+msg.d.channel_id+"/"+id;
+          let bumpLink = "https://discord.com/channels/"+msg.d.guild_id+"/"+msg.d.channel_id+"/"+msg.d.id;
           sendMessage("870868315793391686",{embeds:[{description:"A [bump]("+bumpLink+") was just done in {GUILD_NAME} by {REGEX.GROUPS[1]}"}]});
           setTimeout(()=>sendMessage(msg.d.channel_id,{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [up here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
           setTimeout(()=>sendMessage("870868315793391686",{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
@@ -526,8 +529,8 @@ modules.threadLogging = {
               description:"<#"+msg.d.id+"> was created in <#"+msg.d.parent_id+">.\n\nThread by <@"+msg.d.owner_id+">."}]});
     }
     if (msg.t === "THREAD_DELETE") {
-      sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Thread Created",
-              description:"<#"+msg.d.id+"> was created in <#"+msg.d.parent_id+">.\n\nThread by <@"+msg.d.owner_id+">."}]});
+      sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Thread THREAD_DELETE",
+              description:"<#"+msg.d.id+"> was created in <#"+msg.d.parent_id+">.\n\nSee server audit logs for more information."}]});
     }
     if (msg.t === "THREAD_UPDATE") {
       sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Thread Modified",
