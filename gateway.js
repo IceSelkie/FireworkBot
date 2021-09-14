@@ -362,7 +362,8 @@ modules = {
   inviteLogging: null,
   disboardReminder: null,
   threadLogging: null,
-  upTime: null
+  upTime: null,
+  embeds: null
 }
 
 modules.userMemory = {
@@ -593,6 +594,54 @@ modules.upTime = {
     return isNeg+sec+"."+ms+"s";
   }
 }
+
+modules.embeds = {
+  onDispatch: (bot,msg) => {
+    // if is new message and from admin ->
+    // parse contents (or next message), and send that data as an embed to the same channel.
+    if (msg.t === "MESSAGE_CREATE" /*&& msg.d.member.roles*/)
+      if ((msg.d.member && msg.d.member.roles.includes("724461190897729596")) || msg.d.author.id === "163718745888522241") {
+        let startString = "<@"+bot.self.id+"> embed";
+        if (msg.d.content.startsWith(startString)) {
+          if (msg.d.content === startString)
+            sendMessage(msg.d.channel_id,{"content":"Send an embed from "+bot.self.username+" using the embed command:\n"
+              +"> <@"+bot.self.id+"> embed\n> example plain-text embed\nor\n"
+              +"> <@"+bot.self.id+'> embed\n> {"embeds":[{"color":16762164,"title":"This is a title","description":"This is the main content of the embed."}]}',
+              "embeds":[
+                {"description":"example plain-text embed"},
+                {"color":16762164,"title":"This is a title","description":"This is the main content of the embed."}
+              ]
+            });
+          else {
+            let str = msg.d.content.substring(startString.length+1);
+            try {
+              let obj = JSON.parse(str);
+              sendMessage([msg.d.channel_id,"883172908418084954"],obj).then(a=>{
+                console.log(a);
+                a.res = JSON.parse(a.res);
+                sendMessage([msg.d.channel_id,"883172908418084954"],"Response received:\n```json\n"
+                  +JSON.stringify(
+                    {error_code:a.ret,message_id:a.res.id,flags:a.res.flags,timestamp:a.res.timestamp,edited_timestamp:a.res.edited_timestamp},
+                    null,2)+"```");
+              })
+            } catch (err) {
+              sendMessage([msg.d.channel_id,"883172908418084954"],{embeds:[{description:str}]}).then(a=>{
+                console.log(a);
+                a.res = JSON.parse(a.res);
+                sendMessage([msg.d.channel_id,"883172908418084954"],"Response received:\n```json\n"
+                  +JSON.stringify(
+                    {error_code:a.ret,message_id:a.res.id,flags:a.res.flags,timestamp:a.res.timestamp,edited_timestamp:a.res.edited_timestamp},
+                    null,2)+"```");
+              })
+            }
+          }
+        }
+      }
+
+    // if is getembed, check linked message/replied message and print the embed data (if short enough).
+  }
+}
+
 tempModules = {}
 tempModules.createThread = {
   onDispatch: (bot,msg) => {
