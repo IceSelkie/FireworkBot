@@ -494,7 +494,7 @@ modules.disboardReminder = {
       if (msg.d.content.length === 0 && msg.d.attachments.length === 0 && msg.d.embeds.length === 1) {
         console.log("Message is embed only.")
         let e = msg.d.embeds[0];
-        if (e.url === "https://disboard.org/" && e.color === 2406327 && e.description.includes(">, \n      Bump done :thumbsup:\n      Check it on DISBOARD: https://disboard.org/")) {
+        if (e.url === "https://disboard.org/" && e.color === 2406327) {
           console.log("Message matches embed.")
           // now we can be pretty sure a bump was done.
           modules.disboardReminder.lastBump = Date.now();
