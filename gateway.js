@@ -376,21 +376,54 @@ modules.userMemory = {
 
 modules.joinMessages = {
   postChannel: ["870500800613470248","870868727820849183"],
-  messages: ['{USER} is here to kick butt and chew scavenger! And {USER} is all out of scavenger.',
-             'Please welcome {USER} to Pyrrhia!',
-             'Please welcome {USER} to Pantala!',
-             "Welcome to the dragon's den, {USER}!",
-             'Welcome, {USER}! We wish you the power of the wings of fire!',
-             'The __Eye of Onyx__ fortold that _The One_ is coming! And now here is {USER}! Maybe {USER} is _The One_...?',
-             '{USER} is here. Did they bring snacks?',
-             '{USER} is here now. Will this keep Darkstalker away?'],
-  genJoinMessage: u=> "<@"+u.id+"> has joined the server.\n> "+modules.joinMessages.messages[Math.floor(Math.random() * modules.joinMessages.messages.length)].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
+  messagesJoin: ['{USER} is here to kick butt and chew scavenger! And {USER} is all out of scavenger.',
+                 'Please welcome {USER} to Pyrrhia!',
+                 'Please welcome {USER} to Pantala!',
+                 "Welcome to the dragon's den, {USER}!",
+                 'Welcome, {USER}! We wish you the power of the wings of fire!',
+                 'The __Eye of Onyx__ fortold that _The One_ is coming! And now here is {USER}! Maybe {USER} is _The One_...?',
+                 '{USER} is here. Did they bring snacks?',
+                 '{USER} is here now. Will this keep Darkstalker away?'],
+  genJoinMessage: u=> ""+modules.joinMessages.messagesJoin[Math.floor(Math.random() * modules.joinMessages.messagesJoin.length)].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
+  messagesLeave: ['{USER} has left.',
+                  '{USER} is now gone.'],
+  genLeaveMessage: u=> ""+modules.joinMessages.messagesLeave[Math.floor(Math.random() * modules.joinMessages.messagesLeave.length)].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
   onDispatch: (bot,msg) => {
     if (msg.t === "GUILD_MEMBER_ADD") {
-
       let user = msg.d.user; // {username,public_flags,id,discriminator,avatar}
-      let message = {content: modules.joinMessages.genJoinMessage(user)};
-
+      // let message = {content: modules.joinMessages.genJoinMessage(user)};
+      let message = {embeds:[
+        {
+          type: "rich",
+          timestamp: new Date().toISOString(),
+          color: 5767045,
+          author: {
+            name:"A new FanWing has arrived!",
+            icon_url: "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".png?size=256"
+          },
+          description: modules.joinMessages.genJoinMessage(user),
+          fields: [{name: "Username",value: user.username+"#"+user.discriminator+" • <@"+user.id+">"}],
+          footer: {text:user.id}
+        }]};
+      sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
+    }
+    if (msg.t === "GUILD_MEMBER_REMOVE") {
+      let user = msg.d.user; // {username,public_flags,id,discriminator,avatar}
+      // let message = {content: modules.joinMessages.genLeaveMessage(user)};
+      let message = {embeds:[
+        {
+          type: "rich",
+          timestamp: new Date().toISOString(),
+          color: 16729871,
+          author: {
+            name:"A FanWing has left!",
+            icon_url: "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".png?size=256"
+          },
+          description: modules.joinMessages.genLeaveMessage(user),
+          fields: [{name: "Username",value: user.username+"#"+user.discriminator+" • <@"+user.id+">"},
+            {name:"Roles",value: "{add this later}"}],
+          footer: {text:user.id}
+        }]};
       sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
 
     }
