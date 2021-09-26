@@ -428,7 +428,6 @@ modules.joinMessages = {
     }
   }
 }
-//
 
 
 modules.inviteLogging = {
