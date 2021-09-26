@@ -578,12 +578,19 @@ modules.threadLogging = {
 
 modules.upTime = {
   onDispatch: (bot,msg) => {
-    if (msg.t === "MESSAGE_CREATE" && msg.d.content === "<@"+bot.self.id+"> uptime") {
-      let now = Date.now();
-      let online = modules.upTime.timeDurationToString(bot.timeStart, now);
-      let reconnect = modules.upTime.timeDurationToString(bot.timeLastReconnect, now);
-      reconnect = (reconnect==null)?"never":reconnect+" ago";
-      sendMessage(msg.d.channel_id,"Firework bot has been online for "+online+". (last reconnect: "+reconnect+")")
+    if (msg.t === "MESSAGE_CREATE"){
+      let prefix = "<@"+bot.self.id+">";
+      let message = msg.d.content.replace(/[ \t\n]+/g," ");
+      if (message.startsWith(prefix)) {
+        message = message.substring(prefix.length);
+        if (/^(?:| uptime| online| stats?)$/i.test(message)) {
+          let now = Date.now();
+          let online = modules.upTime.timeDurationToString(bot.timeStart, now);
+          let reconnect = modules.upTime.timeDurationToString(bot.timeLastReconnect, now);
+          reconnect = (reconnect==null)?"never":reconnect+" ago";
+          sendMessage(msg.d.channel_id,"Firework bot has been online for "+online+". (last reconnect: "+reconnect+")")
+        }
+      }
     }
   },
   timeDurationToString: (start, end, depth=2, descriptors) => {
