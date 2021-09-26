@@ -13,7 +13,11 @@ const userMap = new Map();
 
 
 oldlog = console.log;
-console.log= (a) =>{oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a)}
+console.log= (a,b,c,d) =>{
+  if (d!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b,c,d);
+  else if (c!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b,c);
+  else if (b!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b);
+  else oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a);}
 olderr = console.error;
 console.error= (a) =>{olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a)}
 
