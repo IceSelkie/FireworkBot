@@ -425,7 +425,6 @@ modules.joinMessages = {
           footer: {text:user.id}
         }]};
       sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
-
     }
   }
 }
