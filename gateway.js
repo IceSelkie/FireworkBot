@@ -596,8 +596,8 @@ modules.upTime = {
   timeDurationToString: (start, end, depth=2, descriptors) => {
     if (start==null)
       return null;
-    if (descriptors==null)
-      descriptors = ['ms','s','m','hr','d'];
+    if (descriptors==null || !(descriptors instanceof Array))
+      descriptors = [['ms',1000],['s',60],['m',60],['hr',24],['d']];
     if (depth==null)
       depth = 2;
 
@@ -607,27 +607,43 @@ modules.upTime = {
 
     if (duration==0)
       return "0ms";
-    let isNeg = duration<0?"-":"";
+    let ret = duration<0?"-":"";
+    duration = duration<0?-duration:duration;
 
-    let ms = duration%1000;
-    duration = Math.floor(duration/1000);
-    let sec = duration%60;
-    duration = Math.floor(duration/60);
-    let min = duration%60;
-    duration = Math.floor(duration/60);
-    let hr = duration%24;
-    duration = Math.floor(duration/24);
-    let day = duration;
+    //
+    let stack = [];
+    for (let i = 0; i < descriptors.length-1; i++) {
+      console.log(stack);
+      if (descriptors[i] == null || !(descriptors[i] instanceof Array) || descriptors[i].length<2) {
+        console.log("invalid entry")
+        stack.push(null);
+        continue;
+      }
+      if (descriptors[i][0] == null) {
+        console.log("scale ratio with no name")
+        stack.push(null);
+        duration /= descriptors[i][1];
+        continue;
+      }
+      console.log("actual thing")
+      stack.push(duration%descriptors[i][1]);
+      duration = Math.floor(duration/descriptors[i][1])
+    }
+    if (duration!=0)
+    stack.push(duration);
+    console.log(stack);
+    for (let i = stack.length-1; i >= 0 && depth > 0; i--) {
+      console.log("attempt "+i)
+      if (stack[i] == null)
+        continue;
+      if (i==0 || stack[i]!=0) {
+       ret += stack[i] + descriptors[i][0];
+        depth--;
+      }
+      console.log(ret,depth);
+    }
 
-    if (day>0)
-      return isNeg+day+"d"+hr+"h";
-    if (hr>0)
-      return isNeg+hr+"h"+min+"m";
-    if (min>0)
-      return isNeg+min+"m"+sec+"s";
-    ms = ""+ms;
-    ms = "0".repeat(3-ms.length)+ms;
-    return isNeg+sec+"."+ms+"s";
+    return ret;
   }
 }
 
