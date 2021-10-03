@@ -5,6 +5,7 @@ const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platfo
 const heartbeatUpdateInterval = 500;
 const reconnectInterval = 4000;
 const userMap = new Map();
+const memberMap = new Map();
 
 
 // privilaged intents codes:
@@ -348,6 +349,62 @@ sendMessage = async function(channel_id, message_object) {
     return discordRequest("channels/"+channel_id+"/messages",JSON.stringify(message_object));
 }
 
+timeDuration = function(start, end, depth=2, descriptors) {
+  if (start==null)
+    return null;
+  if (descriptors==null || !(descriptors instanceof Array))
+    descriptors = [['ms',1000],['s',60],['m',60],['hr',24],['d']];
+  if (depth==null)
+    depth = 2;
+
+  let duration = start;
+  if (end!=null)
+    duration = end-start;
+
+  if (duration==0)
+    return "0ms";
+  let ret = duration<0?"-":"";
+  duration = duration<0?-duration:duration;
+
+  //
+  let stack = [];
+  for (let i = 0; i < descriptors.length-1; i++) {
+    console.log(stack);
+    if (descriptors[i] == null || !(descriptors[i] instanceof Array) || descriptors[i].length<2) {
+      console.log("invalid entry")
+      stack.push(null);
+      continue;
+    }
+    if (descriptors[i][0] == null) {
+      console.log("scale ratio with no name")
+      stack.push(null);
+      duration /= descriptors[i][1];
+      continue;
+    }
+    console.log("actual thing")
+    stack.push(duration%descriptors[i][1]);
+    duration = Math.floor(duration/descriptors[i][1])
+  }
+  if (duration!=0)
+  stack.push(duration);
+  console.log(stack);
+  for (let i = stack.length-1; i >= 0 && depth > 0; i--) {
+    console.log("attempt "+i)
+    if (stack[i] == null)
+      continue;
+    if (i==0 || stack[i]!=0) {
+     ret += stack[i] + descriptors[i][0];
+      depth--;
+    }
+    console.log(ret,depth);
+  }
+
+  return ret;
+}
+
+snowflakeToTime = function(snowflake) {
+  return Number(BigInt(snowflake)/4194304n+1420070400000n);
+}
 
 
 
@@ -370,6 +427,30 @@ modules.userMemory = {
           userMap.set(a.user.id,a.user);
         }
       })
+      if (!memberMap.has(msg.d.id))
+        memberMap.set(msg.d.id,new Map());
+      msg.d.members.forEach(member=>modules.userMemory.mergeMember(msg.d.id,member.user.id,member));
+    }
+    if (msg.t === "USER_UPDATE") {
+      userMap.set(msg.user.id,msg.user);
+    }
+    if (msg.t === "GUILD_MEMBER_ADD" || msg.t === "GUILD_MEMBER_UPDATE") {
+      let member = JSON.parse(JSON.stringify(msg.d));
+      let guild_id = member.guild_id;
+      modules.userMemory.mergeMember(guild_id,member.user.id,member);
+    }
+  },
+  mergeMember: function (guild_id, user_id, member) {
+    // Guild_ID is guarenteed to already be added.
+    let guildMap = memberMap.get(guild_id);
+    if (!guildMap.has(user_id))
+      guildMap.set(user_id,member);
+    else {
+      // needs merge
+      let old = guildMap.get(user_id);
+      if (old.user && !member.user)
+        member.user = old.user;
+      guildMap.set(user_id,member);
     }
   }
 }
@@ -402,7 +483,8 @@ modules.joinMessages = {
             icon_url: "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".png?size=256"
           },
           description: modules.joinMessages.genJoinMessage(user),
-          fields: [{name: "Username",value: user.username+"#"+user.discriminator+" • <@"+user.id+">"}],
+          fields: [{name: "Username",value: user.username+"#"+user.discriminator+" • <@"+user.id+">"},
+            {name:"Account Age",value: timeDuration(snowflakeToTime(user.id), msg.time)}],
           footer: {text:user.id}
         }]};
       sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
@@ -410,6 +492,7 @@ modules.joinMessages = {
     if (msg.t === "GUILD_MEMBER_REMOVE") {
       let user = msg.d.user; // {username,public_flags,id,discriminator,avatar}
       // let message = {content: modules.joinMessages.genLeaveMessage(user)};
+      let member = memberMap.get(msg.d.guild_id).get(user.id);
       let message = {embeds:[
         {
           type: "rich",
@@ -421,7 +504,8 @@ modules.joinMessages = {
           },
           description: modules.joinMessages.genLeaveMessage(user),
           fields: [{name: "Username",value: user.username+"#"+user.discriminator+" • <@"+user.id+">"},
-            {name:"Roles",value: "{add this later}"}],
+            {name:"Time On Server",value: timeDuration(Date.parse(member.joined_at),msg.time)},
+            {name:"Roles",value: "<@&"+member.roles.join("> <@&")+">"}],
           footer: {text:user.id}
         }]};
       sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
@@ -585,65 +669,13 @@ modules.upTime = {
         message = message.substring(prefix.length);
         if (/^(?:| uptime| online| stats?)$/i.test(message)) {
           let now = Date.now();
-          let online = modules.upTime.timeDurationToString(bot.timeStart, now);
-          let reconnect = modules.upTime.timeDurationToString(bot.timeLastReconnect, now);
+          let online = timeDuration(bot.timeStart, now);
+          let reconnect = timeDuration(bot.timeLastReconnect, now);
           reconnect = (reconnect==null)?"never":reconnect+" ago";
           sendMessage(msg.d.channel_id,"Firework bot has been online for "+online+". (last reconnect: "+reconnect+")")
         }
       }
     }
-  },
-  timeDurationToString: (start, end, depth=2, descriptors) => {
-    if (start==null)
-      return null;
-    if (descriptors==null || !(descriptors instanceof Array))
-      descriptors = [['ms',1000],['s',60],['m',60],['hr',24],['d']];
-    if (depth==null)
-      depth = 2;
-
-    let duration = start;
-    if (end!=null)
-      duration = end-start;
-
-    if (duration==0)
-      return "0ms";
-    let ret = duration<0?"-":"";
-    duration = duration<0?-duration:duration;
-
-    //
-    let stack = [];
-    for (let i = 0; i < descriptors.length-1; i++) {
-      console.log(stack);
-      if (descriptors[i] == null || !(descriptors[i] instanceof Array) || descriptors[i].length<2) {
-        console.log("invalid entry")
-        stack.push(null);
-        continue;
-      }
-      if (descriptors[i][0] == null) {
-        console.log("scale ratio with no name")
-        stack.push(null);
-        duration /= descriptors[i][1];
-        continue;
-      }
-      console.log("actual thing")
-      stack.push(duration%descriptors[i][1]);
-      duration = Math.floor(duration/descriptors[i][1])
-    }
-    if (duration!=0)
-    stack.push(duration);
-    console.log(stack);
-    for (let i = stack.length-1; i >= 0 && depth > 0; i--) {
-      console.log("attempt "+i)
-      if (stack[i] == null)
-        continue;
-      if (i==0 || stack[i]!=0) {
-       ret += stack[i] + descriptors[i][0];
-        depth--;
-      }
-      console.log(ret,depth);
-    }
-
-    return ret;
   }
 }
 
