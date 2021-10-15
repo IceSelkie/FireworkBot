@@ -481,7 +481,7 @@ modules = {
 }
 
 modules.nop = {
-  name = "nop",
+  name: "nop",
   onDispatch: (bot,msg)=>{}
 }
 modules.userMemory = {
@@ -857,7 +857,7 @@ modules.threadAlive = {
 
 tempModules = {}
 tempModules.createThread = {
-  name: "createThread",
+  name: "temp_createThread",
   onDispatch: (bot,msg) => {
     if (msg.t === "MESSAGE_CREATE" && msg.d.author.id === "163718745888522241"){
       try {
@@ -878,7 +878,7 @@ tempModules.createThread = {
   }
 };
 tempModules.securityIssue = {
-  name: "securityIssue",
+  name: "temp_securityIssue",
   onDispatch: (bot,msg) => {
     if (msg.t === "MESSAGE_CREATE" && msg.d.author.id === "163718745888522241"){
       try {
