@@ -350,56 +350,107 @@ sendMessage = async function(channel_id, message_object) {
 }
 
 timeDuration = function(start, end, depth=2, descriptors) {
+  // if (start==null)
+  //   return null;
+  // if (descriptors==null || !(descriptors instanceof Array))
+  //   descriptors = [['ms',1000],['s',60],['m',60],['hr',24],['d']];
+  // if (depth==null)
+  //   depth = 2;
+
+  // let duration = start;
+  // if (end!=null)
+  //   duration = end-start;
+
+  // if (duration==0)
+  //   return "0ms";
+  // let ret = duration<0?"-":"";
+  // duration = duration<0?-duration:duration;
+
+  // //
+  // let stack = [];
+  // for (let i = 0; i < descriptors.length-1; i++) {
+  //   console.log(stack);
+  //   if (descriptors[i] == null || !(descriptors[i] instanceof Array) || descriptors[i].length<2) {
+  //     console.log("invalid entry")
+  //     stack.push(null);
+  //     continue;
+  //   }
+  //   if (descriptors[i][0] == null) {
+  //     console.log("scale ratio with no name")
+  //     stack.push(null);
+  //     duration /= descriptors[i][1];
+  //     continue;
+  //   }
+  //   console.log("actual thing")
+  //   stack.push(duration%descriptors[i][1]);
+  //   duration = Math.floor(duration/descriptors[i][1])
+  // }
+  // if (duration!=0)
+  // stack.push(duration);
+  // console.log(stack);
+  // for (let i = stack.length-1; i >= 0 && depth > 0; i--) {
+  //   console.log("attempt "+i)
+  //   if (stack[i] == null)
+  //     continue;
+  //   if (i==0 || stack[i]!=0) {
+  //    ret += stack[i] + descriptors[i][0];
+  //     depth--;
+  //   }
+  //   console.log(ret,depth);
+  // }
+
+  // return ret;
   if (start==null)
     return null;
-  if (descriptors==null || !(descriptors instanceof Array))
-    descriptors = [['ms',1000],['s',60],['m',60],['hr',24],['d']];
   if (depth==null)
-    depth = 2;
+    depth = 999;
 
   let duration = start;
   if (end!=null)
     duration = end-start;
 
   if (duration==0)
-    return "0ms";
-  let ret = duration<0?"-":"";
-  duration = duration<0?-duration:duration;
+    return "0.000 seconds";
+  let isNeg = duration<0;
+  if (isNeg)
+    duration = -duration;
 
-  //
-  let stack = [];
-  for (let i = 0; i < descriptors.length-1; i++) {
-    console.log(stack);
-    if (descriptors[i] == null || !(descriptors[i] instanceof Array) || descriptors[i].length<2) {
-      console.log("invalid entry")
-      stack.push(null);
-      continue;
-    }
-    if (descriptors[i][0] == null) {
-      console.log("scale ratio with no name")
-      stack.push(null);
-      duration /= descriptors[i][1];
-      continue;
-    }
-    console.log("actual thing")
-    stack.push(duration%descriptors[i][1]);
-    duration = Math.floor(duration/descriptors[i][1])
-  }
-  if (duration!=0)
-  stack.push(duration);
-  console.log(stack);
-  for (let i = stack.length-1; i >= 0 && depth > 0; i--) {
-    console.log("attempt "+i)
-    if (stack[i] == null)
-      continue;
-    if (i==0 || stack[i]!=0) {
-     ret += stack[i] + descriptors[i][0];
-      depth--;
-    }
-    console.log(ret,depth);
-  }
+  let ms = duration%1000;
+  duration = Math.floor(duration/1000);
+  let sec = duration%60;
+  duration = Math.floor(duration/60);
+  let min = duration%60;
+  duration = Math.floor(duration/60);
+  let hr = duration%24;
+  duration = Math.floor(duration/24);
+  let day = duration%365;
+  duration = Math.floor(duration/365);
+  let year = duration;
 
-  return ret;
+  let ret2 = [[]];
+
+  if (year!==0)
+    ret2.push([year+(year===1?" year":" years")]);
+  if (day!==0 || (year!==0 && hr!==0))
+    ret2.push([day+(day===1?" day":" days")]);
+  if (hr!==0 || (day!==0 && min!==0))
+    ret2.push([hr+(hr===1?" hour":" hours")]);
+  if (min!==0 || (hr!==0 && sec!==0))
+    ret2.push([min+(min===1?" minute":" minutes")]);
+  if (year===0 && day===0 && hr===0 && min===0)
+    if (sec!==0)
+      ret2.push([sec+"."+ms+(sec===1 && ms===0?" second":" seconds")]);
+    else // ms is always non-zero
+      ret2.push([ms+(ms===1?" millisecond":" milliseconds")]);
+  else
+    if (sec!==0 || (min!==0))
+      ret2.push([sec+(sec===1?" second":" seconds")]);
+
+  if (isNeg)
+    ret2[0].push("negative");
+  if (ret2.length>=3) // empty/negative
+    ret2[ret2.length-2].push("and");
+  return ret2.flat().join(" ");
 }
 
 snowflakeToTime = function(snowflake) {
