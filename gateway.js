@@ -842,8 +842,15 @@ tempModules.createThread = {
       try {
         // let obj = JSON.parse(msg.d.content);
         // console.log(obj);
-        if (/^<@870750872504786944> createThread /.test(msg.d.content))
+        if (/^<@870750872504786944> createThread /.test(msg.d.content)) {
+          //    {"name":"thread title","type":11,"auto_archive_duration":1440,"location":"Thread Browser Toolbar"}
+          // -> https://discord.com/api/v9/channels/870868727820849183/threads
+          //    {"name":"thread title","type":11,"auto_archive_duration":1440,"location":"Message"}
+          // -> https://discord.com/api/v9/channels/870868727820849183/messages/898691240290291723/threads
           console.log("Thread create request received.")
+          // discordRequest()
+          discordRequest("channels/"+msg.d.channel_id+"/threads",{name:(msg.d.content.substring("<@870750872504786944> createThread ".length)),type:11,auto_archive_duration:1440});
+        }
       } catch (err) {
       }
     }
