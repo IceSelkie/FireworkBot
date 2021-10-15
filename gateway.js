@@ -351,6 +351,13 @@ sendMessage = async function(channel_id, message_object) {
     return discordRequest("channels/"+channel_id+"/messages",JSON.stringify(message_object));
 }
 
+replyToMessage = async function(original, message_object) {
+  if (typeof message_object === "string")
+    message_object = {"content":message_object};
+  message_object.message_reference = {channel_id:original.channel_id, message_id:original.id};
+  return sendMessage(original.channel_id,message_object);
+}
+
 timeDuration = function(start, end, depth=2, descriptors) {
   // if (start==null)
   //   return null;
