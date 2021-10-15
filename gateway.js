@@ -6,6 +6,7 @@ const heartbeatUpdateInterval = 500;
 const reconnectInterval = 4000;
 const userMap = new Map();
 const memberMap = new Map();
+const rolePositions = new Map();
 
 
 // privilaged intents codes:
@@ -481,6 +482,7 @@ modules.userMemory = {
       if (!memberMap.has(msg.d.id))
         memberMap.set(msg.d.id,new Map());
       msg.d.members.forEach(member=>modules.userMemory.mergeMember(msg.d.id,member.user.id,member));
+      msg.d.roles.forEach(role=>rolePositions.set(role.id,role.position));
     }
     if (msg.t === "USER_UPDATE") {
       userMap.set(msg.user.id,msg.user);
@@ -490,6 +492,8 @@ modules.userMemory = {
       let guild_id = member.guild_id;
       modules.userMemory.mergeMember(guild_id,member.user.id,member);
     }
+    if (msg.t === "GUILD_ROLE_CREATE" || msg.t === "GUILD_ROLE_UPDATE")
+      rolePositions.set(msg.d.role.id,msg.d.role.position);
   },
   mergeMember: function (guild_id, user_id, member) {
     // Guild_ID is guarenteed to already be added.
@@ -507,7 +511,7 @@ modules.userMemory = {
 }
 
 modules.joinMessages = {
-  postChannel: ["870500800613470248","870868727820849183"],
+  postChannel: ["870500800613470248","870868727820849183","713444513833680909"],
   messagesJoin: ['{USER} is here to kick butt and chew scavenger! And {USER} is all out of scavenger.',
                  'Please welcome {USER} to Pyrrhia!',
                  'Please welcome {USER} to Pantala!',
@@ -527,7 +531,7 @@ modules.joinMessages = {
       let message = {embeds:[
         {
           type: "rich",
-          timestamp: new Date().toISOString(),
+          timestamp: new Date(msg.time).toISOString(),
           color: 5767045,
           author: {
             name:"A new FanWing has arrived!",
@@ -535,7 +539,7 @@ modules.joinMessages = {
           },
           description: modules.joinMessages.genJoinMessage(user),
           fields: [{name: "Username",value: user.username+"#"+user.discriminator+" • <@"+user.id+">"},
-            {name:"Account Age",value: timeDuration(snowflakeToTime(user.id), msg.time)}],
+            {name:"Account Age",value: timeDuration(snowflakeToTime(user.id), msg.time,999)}],
           footer: {text:user.id}
         }]};
       sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
@@ -544,10 +548,11 @@ modules.joinMessages = {
       let user = msg.d.user; // {username,public_flags,id,discriminator,avatar}
       // let message = {content: modules.joinMessages.genLeaveMessage(user)};
       let member = memberMap.get(msg.d.guild_id).get(user.id);
+      member.roles.sort((a,b)=>rolePositions.get(b)-rolePositions.get(a));
       let message = {embeds:[
         {
           type: "rich",
-          timestamp: new Date().toISOString(),
+          timestamp: new Date(msg.time).toISOString(),
           color: 16729871,
           author: {
             name:"A FanWing has left!",
@@ -555,7 +560,7 @@ modules.joinMessages = {
           },
           description: modules.joinMessages.genLeaveMessage(user),
           fields: [{name: "Username",value: user.username+"#"+user.discriminator+" • <@"+user.id+">"},
-            {name:"Time On Server",value: timeDuration(Date.parse(member.joined_at),msg.time)},
+            {name:"Time On Server",value: timeDuration(Date.parse(member.joined_at),msg.time,999)},
             {name:"Roles",value: "<@&"+member.roles.join("> <@&")+">"}],
           footer: {text:user.id}
         }]};
