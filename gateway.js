@@ -470,6 +470,7 @@ snowflakeToTime = function(snowflake) {
 
 
 modules = {
+  nop: null,
   userMemory: null,
   joinMessages: null,
   inviteLogging: null,
@@ -479,7 +480,12 @@ modules = {
   embeds: null
 }
 
+modules.nop = {
+  name = "nop",
+  onDispatch: (bot,msg)=>{}
+}
 modules.userMemory = {
+  name: "userMemory",
   onDispatch: (bot,msg)=>{
     if (msg.t === "GUILD_CREATE") {
       msg.d.members.forEach(a=>{
@@ -519,6 +525,7 @@ modules.userMemory = {
 }
 
 modules.joinMessages = {
+  name: "joinMessages",
   postChannel: ["870500800613470248","870868727820849183","713444513833680909"],
   messagesJoin: ['{USER} is here to kick butt and chew scavenger! And {USER} is all out of scavenger.',
                  'Please welcome {USER} to Pyrrhia!',
@@ -579,6 +586,7 @@ modules.joinMessages = {
 
 
 modules.inviteLogging = {
+  name: "inviteLogging",
   inviteMap: new Map(),
   inviteLoggingChannel: "750509276707160126",
   onDispatch: (bot,msg) => {
@@ -677,6 +685,7 @@ modules.inviteLogging = {
 }
 
 modules.disboardReminder = {
+  name: "disboardReminder",
   lastBump: null,
   onDispatch: (bot, msg) => {
     if (msg.t === "MESSAGE_CREATE" && msg.d.author.username === "DISBOARD" && msg.d.author.bot === true) {
@@ -701,6 +710,7 @@ modules.disboardReminder = {
 }
 
 modules.threadLogging = {
+  name: "threadLogging",
   onDispatch: (bot, msg) => {
     if (msg.t === "THREAD_CREATE") {
       sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Thread Created",
@@ -725,6 +735,7 @@ modules.threadLogging = {
 }
 
 modules.infoHelpUptime = {
+  name: "infoHelpUptime",
   onDispatch: (bot,msg) => {
     if (msg.t === "MESSAGE_CREATE"){
       let prefix = "<@"+bot.self.id+">";
@@ -732,7 +743,7 @@ modules.infoHelpUptime = {
       if (message.startsWith(prefix)) {
         message = message.substring(prefix.length);
         if (/^(?:| prefix)$/i.test(message)) {
-          sendMessage("Firework's prefix is `@"+bot.self.username+"#"+bot.self.discriminator+"` or `<@"+bot.self.id+">`");
+          replyToMessage(msg.d,"Firework's prefix is `@"+bot.self.username+"#"+bot.self.discriminator+"` or `<@"+bot.self.id+">`");
         }
         if (/^(?: uptime| online| stats?| info)$/i.test(message)) {
           let now = Date.now();
@@ -741,7 +752,7 @@ modules.infoHelpUptime = {
           let reconnect_count = bot.types.get("RESUMED");
           reconnect_count = reconnect_count+(reconnect_count===1?" time":" times");
           reconnect = (reconnect==null)?"never":reconnect+" ago";
-          sendMessage(msg.d.channel_id,"Firework bot ("+version+")\n"
+          replyToMessage(msg.d,"Firework bot ("+version+")\n"
             +"> "+"Shard count: "+1+"\n"
             +"> "+"Received: "+bot.contacts.length+" packets\n"
             +"> "+"Online for: "+online+"\n"
@@ -749,7 +760,7 @@ modules.infoHelpUptime = {
             +"> "+"Last reconnect: "+reconnect);
         }
         if (/^(?: help)$/i.test(message)) {
-          sendMessage(msg.d.channel_id,"Firework bot ("+version+")\n"
+          replyToMessage(msg.d,"Firework bot ("+version+")\n"
             +"> "+"Commands:\n"
             +"> "+" • `help  ` - displays this\n"
             +"> "+" • `prefix` - the prefix (`@"+bot.self.username+"#"+bot.self.discriminator+"` or `<@"+bot.self.id+">`)\n"
@@ -761,6 +772,7 @@ modules.infoHelpUptime = {
 }
 
 modules.embeds = {
+  name: "embeds",
   onDispatch: (bot,msg) => {
     // if is new message and from admin ->
     // parse contents (or next message), and send that data as an embed to the same channel.
@@ -808,6 +820,7 @@ modules.embeds = {
 }
 
 modules.threadAlive = {
+  name: "threadAlive",
   threads: new Map(),
   threadAlive: null,
   onDispatch: (bot,msg) => {
@@ -844,6 +857,7 @@ modules.threadAlive = {
 
 tempModules = {}
 tempModules.createThread = {
+  name: "createThread",
   onDispatch: (bot,msg) => {
     if (msg.t === "MESSAGE_CREATE" && msg.d.author.id === "163718745888522241"){
       try {
