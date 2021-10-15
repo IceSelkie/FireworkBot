@@ -170,7 +170,7 @@ class Bot {
   }
   wsOnMessage = function(thiss, message) {
     let message_time = Date.now();
-    // console.log('recieved:');
+    // console.log('received:');
     message = JSON.parse(message);
     message.time = message_time;
     let messagestr = JSON.stringify(message,null,2);
@@ -229,7 +229,7 @@ class Bot {
         console.log("Connection READY: Logged in as "+thiss.self.username+"#"+thiss.self.discriminator+" <@"+thiss.self.id+"> "+(thiss.self.bot?"[bot]":"<<selfbot>>") + " -> "+thiss.sessionID)
       }
 
-      console.log("Dispatch recieved: "+message.t+" #"+thiss.types.get(message.t) + " id="+message.s + thiss.hasInterest(messagestr))
+      console.log("Dispatch received: "+message.t+" #"+thiss.types.get(message.t) + " id="+message.s + thiss.hasInterest(messagestr))
 
       thiss.modules.forEach(a => {
         try {
