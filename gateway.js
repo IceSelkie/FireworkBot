@@ -7,6 +7,7 @@ const reconnectInterval = 4000;
 const userMap = new Map();
 const memberMap = new Map();
 const rolePositions = new Map();
+version = "v0.3.1"
 
 
 // privilaged intents codes:
@@ -467,7 +468,7 @@ modules = {
   inviteLogging: null,
   disboardReminder: null,
   threadLogging: null,
-  upTime: null,
+  infoHelpUptime: null,
   embeds: null
 }
 
@@ -716,19 +717,36 @@ modules.threadLogging = {
   }
 }
 
-modules.upTime = {
+modules.infoHelpUptime = {
   onDispatch: (bot,msg) => {
     if (msg.t === "MESSAGE_CREATE"){
       let prefix = "<@"+bot.self.id+">";
       let message = msg.d.content.replace(/[ \t\n]+/g," ");
       if (message.startsWith(prefix)) {
         message = message.substring(prefix.length);
-        if (/^(?:| uptime| online| stats?)$/i.test(message)) {
+        if (/^(?:| prefix)$/i.test(message)) {
+          sendMessage("Firework's prefix is `@"+bot.self.username+"#"+bot.self.discriminator+"` or `<@"+bot.self.id+">`");
+        }
+        if (/^(?: uptime| online| stats?| info)$/i.test(message)) {
           let now = Date.now();
           let online = timeDuration(bot.timeStart, now);
           let reconnect = timeDuration(bot.timeLastReconnect, now);
+          let reconnect_count = bot.types.get("RESUMED");
+          reconnect_count = reconnect_count+(reconnect_count===1?" time":" times");
           reconnect = (reconnect==null)?"never":reconnect+" ago";
-          sendMessage(msg.d.channel_id,"Firework bot has been online for "+online+". (last reconnect: "+reconnect+")")
+          sendMessage(msg.d.channel_id,"Firework bot ("+version+")\n"
+            +"> "+"Shard count: "+1+"\n"
+            +"> "+"Received: "+bot.contacts.length+" packets\n"
+            +"> "+"Online for: "+online+"\n"
+            +"> "+"Reconnected: "+reconnect_count+"\n"
+            +"> "+"Last reconnect: "+reconnect);
+        }
+        if (/^(?: help)$/i.test(message)) {
+          sendMessage(msg.d.channel_id,"Firework bot ("+version+")\n"
+            +"> "+"Commands:\n"
+            +"> "+" • `help  ` - displays this\n"
+            +"> "+" • `prefix` - the prefix (`@"+bot.self.username+"#"+bot.self.discriminator+"` or `<@"+bot.self.id+">`)\n"
+            +"> "+" • `stats ` - displays uptime and other basic statistics\n")
         }
       }
     }
@@ -839,7 +857,7 @@ bot.addModule(modules.joinMessages)
 bot.addModule(modules.inviteLogging)
 bot.addModule(modules.disboardReminder)
 bot.addModule(modules.threadLogging)
-bot.addModule(modules.upTime)
+bot.addModule(modules.infoHelpUptime)
 bot.addModule(modules.embeds)
 
 
