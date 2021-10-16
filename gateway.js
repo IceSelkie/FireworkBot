@@ -7,7 +7,7 @@ const reconnectInterval = 4000;
 const userMap = new Map();
 const memberMap = new Map();
 const rolePositions = new Map();
-version = "v0.3.1"
+version = "v0.4.1"
 
 
 // privilaged intents codes:
