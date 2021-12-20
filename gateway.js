@@ -9,7 +9,7 @@ const memberMap = new Map();
 const channelMap = new Map();
 const rolePositions = new Map();
 var sents = []
-version = "v0.6.5 beta"
+version = "v0.10.1 beta"
 
 
 // privilaged intents codes:
@@ -780,9 +780,11 @@ modules.infoHelpUptime = {
   onDispatch: (bot,msg) => {
     if (msg.t === "MESSAGE_CREATE"){
       let prefix = "<@"+bot.self.id+">";
+      let prefix2 = "<@!"+bot.self.id+">";
       let message = msg.d.content.replace(/[ \t\n]+/g," ");
-      if (message.startsWith(prefix)) {
-        message = message.substring(prefix.length);
+      if (message.startsWith(prefix) || message.startsWith(prefix2)) {
+        // message of "@firework{textwithoutspaces}" will be interpreted as "@firework" or "".
+        message = message.indexOf(" ")==-1?"":message.substring(message.indexOf(" "));
         if (/^(?:| prefix)$/i.test(message)) {
           replyToMessage(msg.d,"Firework's prefix is `@"+bot.self.username+"#"+bot.self.discriminator+"` or `<@"+bot.self.id+">`");
         }
@@ -796,8 +798,10 @@ modules.infoHelpUptime = {
           replyToMessage(msg.d,"Firework bot ("+version+")\n"
             +"> "+"Shard count: "+1+"\n"
             +"> "+"Received: "+bot.contacts.length+" packets\n"
+            +"> "+"Sent: "+sents.length+" packets\n"
+            +"> "+"Seen: "+bot.types.get("MESSAGE_CREATE")+" messages\n"
             +"> "+"Online for: "+online+"\n"
-            +"> "+"Reconnected: "+reconnect_count+"\n"
+            //+"> "+"Reconnected: "+reconnect_count+"\n"
             +"> "+"Last reconnect: "+reconnect);
         }
         if (/^(?: help)$/i.test(message)) {
@@ -820,8 +824,9 @@ modules.embeds = {
     if (msg.t === "MESSAGE_CREATE" /*&& msg.d.member.roles*/)
       if ((msg.d.member && msg.d.member.roles.includes("724461190897729596")) || msg.d.author.id === "163718745888522241") {
         let startString = "<@"+bot.self.id+"> embed";
-        if (msg.d.content.startsWith(startString)) {
-          if (msg.d.content === startString)
+        let startString2 = "<@!"+bot.self.id+"> embed";
+        if (msg.d.content.startsWith(startString) || msg.d.content.startsWith(startString2)) {
+          if (msg.d.content === startString || msg.d.content === startString2)
             sendMessage(msg.d.channel_id,{"content":"Send an embed from "+bot.self.username+" using the embed command:\n"
               +"> <@"+bot.self.id+"> embed\n> example plain-text embed\nor\n"
               +"> <@"+bot.self.id+'> embed\n> {"embeds":[{"color":16762164,"title":"This is a title","description":"This is the main content of the embed."}]}',
