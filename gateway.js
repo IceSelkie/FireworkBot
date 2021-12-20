@@ -499,6 +499,7 @@ modules.userMemory = {
         memberMap.set(msg.d.id,new Map());
       msg.d.members.forEach(member=>modules.userMemory.mergeMember(msg.d.id,member.user.id,member));
       msg.d.roles.forEach(role=>rolePositions.set(role.id,role.position));
+      msg.d.channels.forEach(channel=>channelMap.set(channel.id,channel));
     }
     if (msg.t === "USER_UPDATE") {
       userMap.set(msg.user.id,msg.user);
@@ -510,10 +511,15 @@ modules.userMemory = {
     }
     if (msg.t === "GUILD_ROLE_CREATE" || msg.t === "GUILD_ROLE_UPDATE")
       rolePositions.set(msg.d.role.id,msg.d.role.position);
+    if (msg.t === "CHANNEL_CREATE" || msg.t === "CHANNEL_UPDATE")
+      channelMap.set(msg.d.id,msg.d);
   },
   mergeMember: function (guild_id, user_id, member) {
     // Guild_ID is guarenteed to already be added.
+    // Guess not cuz it failed. (if MEMBER_UPDATE happens before GUILD_CREATE, it will not be added)
     let guildMap = memberMap.get(guild_id);
+    if (guildMap == undefined)
+      memberMap.set(guild_id,guildMap = new Map());
     if (!guildMap.has(user_id))
       guildMap.set(user_id,member);
     else {
