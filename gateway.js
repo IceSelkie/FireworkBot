@@ -219,7 +219,7 @@ class Bot {
     if (message.op === 9) {
       console.error("Reconnect failed. Please start a new session.")
       sendMessage(["870500800613470248","870868727820849183","883172908418084954"],
-        "Reconnect failed with op code 9. Will **_not_** attempt to reconnect. Bot has effectively died; Manual restart required.\n\n<@163718745888522241>");
+        "Reconnect failed with op code 9. Will **_not_** attempt to reconnect. Bot has effectively died; Manual restart required.\n\n> "+version+"\n\n<@163718745888522241>");
       thiss.dc();
     } else
     // Standard Dipatch
