@@ -6,8 +6,10 @@ const heartbeatUpdateInterval = 500;
 const reconnectInterval = 4000;
 const userMap = new Map();
 const memberMap = new Map();
+const channelMap = new Map();
 const rolePositions = new Map();
-version = "v0.4.1"
+var sents = []
+version = "v0.6.5 beta"
 
 
 // privilaged intents codes:
@@ -36,6 +38,7 @@ class Bot {
     this.heartbeatShouldBeRunning = false;
     this.types = new Map();
     this.contacts = [];
+    // var sents = []; // global cuz refactoring is pain
     this.print = false; // print all dispatch to logs
     // this.send = true; // false to disable sending messages via sendMessage method
     // this.heartbeatThread = 0;
@@ -313,16 +316,35 @@ discordRequest = function(path, data=null, method="GET", useToken=true) {
     }
     if (typeof data !== "string")
       data = JSON.stringify(data);
-    console.log(JSON.stringify({method:opts.method,path:opts.path,data:data}));
+    
+    saveObject = {
+      method:opts.method,
+      path:opts.path,
+      data:data,
+      timeSend:Date.now()
+    };
+    sents.push(saveObject);
+    console.log(JSON.stringify(saveObject));
+
     let req = https.request(opts,
       res=>{
         let data = '';
         res.setEncoding('utf8');
         // console.log('Headers:\n'+JSON.stringify(res.headers,null,2));
         res.on('data',part=>data+=part);
-        // TODO: send ratelimit data
-        res.on('end',()=>resolve({"ret":res.statusCode,"res":data,"ratelimit_data":null}));
-      }).on('error',err=>reject(err));
+        // TODO: remember ratelimit data
+        res.on('end',()=>{
+          saveObject.timeDone = Date.now();
+          saveObject.ret = res.statusCode;
+          saveObject.res = data;
+          saveObject.ratelimit_data = JSON.stringify(res.headers,null,2);
+          resolve(saveObject);
+        });
+      }).on('error',err=>{
+        saveObject.timeDone = Date.now();
+        saveObject.err = err;
+        reject(err);
+      });
     if (data !== null) {
       if (typeof data !== 'string')
         data = JSON.stringify(data,null);
