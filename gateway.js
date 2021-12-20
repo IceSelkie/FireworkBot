@@ -942,19 +942,60 @@ tempModules.securityIssue = {
     }
   }
 }
+tempModules.genRules = {
+  name: "genRules",
+  onDispatch: (bot,msg) => {
+    if (msg.t === "MESSAGE_CREATE" && msg.d.author.id === "163718745888522241"){
+      if (/^<@870750872504786944> send /.test(msg.d.content)) {
+        let fname = msg.d.content.substring("<@870750872504786944> send ".length);
+        if (fs.existsSync("sets/"+fname))
+          tempModules.genRules.sendMessageSet(msg.d,JSON.parse(fs.readFileSync("sets/"+fname)).flat(5),[],0);
+      }
+    }
+  },
+  sendMessageSet: (dest,messages,responses,index) => {
+    messages = messages.flat();
+    if (index>messages.length)
+      return;
+
+    sendMessage(dest.channel_id, JSON.parse(JSON.stringify(messages[index]).replace("{{CID}}",dest.channel_id).replace("{{MID}}",responses[0]?responses[0].id:"undefined")))
+      .then(a=>
+      {
+        console.log(a);
+        responses.push(JSON.parse(a.res));
+        setTimeout(()=>{tempModules.genRules.sendMessageSet(dest,messages,responses,index+1)},1500);
+      });
+  }
+}
 
 
 
+// // production branch
+// bot.addModule(modules.userMemory)
+// bot.addModule(modules.joinMessages)
+// bot.addModule(modules.inviteLogging)
+// bot.addModule(modules.disboardReminder)
+// bot.addModule(modules.threadLogging)
+// bot.addModule(modules.infoHelpUptime)
+// bot.addModule(modules.embeds)
+
+// // bot.addModule(tempModules.createThread)
+// bot.addModule(tempModules.securityIssue)
+// // bot.addModule(tempModules.genRules)
+
+
+
+
+// beta branch
 bot.addModule(modules.userMemory)
-bot.addModule(modules.joinMessages)
-bot.addModule(modules.inviteLogging)
-bot.addModule(modules.disboardReminder)
-bot.addModule(modules.threadLogging)
+// bot.addModule(modules.joinMessages)
+// bot.addModule(modules.inviteLogging)
+// bot.addModule(modules.disboardReminder)
+// bot.addModule(modules.threadLogging)
 bot.addModule(modules.infoHelpUptime)
-bot.addModule(modules.embeds)
-
+// bot.addModule(modules.embeds)
 
 bot.addModule(tempModules.createThread)
 bot.addModule(tempModules.securityIssue)
-
+bot.addModule(tempModules.genRules)
 
