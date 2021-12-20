@@ -221,6 +221,7 @@ class Bot {
       sendMessage(["870500800613470248","870868727820849183","883172908418084954"],
         "Reconnect failed with op code 9. Will **_not_** attempt to reconnect. Bot has effectively died; Manual restart required.\n\n> "+version+"\n\n<@163718745888522241>");
       thiss.dc();
+      setTimeout(()=>thiss.cleanup(),5000);
     } else
     // Standard Dipatch
     if (message.op === 0) {
@@ -247,6 +248,15 @@ class Bot {
     }
   }
 
+  cleanup = function() {
+    oldlog(timeDuration(this.timeStart,this.contacts[this.contacts.length-1].time));
+    oldlog(new Date(this.contacts[this.contacts.length-1].time));
+    oldlog(this.contacts.length/1000);
+    fs.writeFileSync("contacts/"+this.contacts[0].time+"-"+this.contacts.length+".json",JSON.stringify(this.contacts));
+    fs.writeFileSync("contacts/"+this.contacts[0].time+"-"+this.contacts.length+"-sents.json",JSON.stringify(sents));
+    oldlog(version);
+  }
+
 
   g = function(s) {
     console.log(JSON.stringify(this.contacts[s-1],null,2));
@@ -259,6 +269,7 @@ class Bot {
   dc = function() {
     this.heartbeatShouldBeRunning = false;
     this.ws.close(1000)
+    setTimeout(()=>this.cleanup(),5000);
   }
   // reconnect
   rc = function() {
