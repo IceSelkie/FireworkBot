@@ -4,13 +4,14 @@ const fs = require("fs");
 const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("token.json").toString())).token}};
 const heartbeatUpdateInterval = 500;
 const reconnectInterval = 4000;
-const userMap = new Map();
-const memberMap = new Map();
+const userMap = new Map();    // user_id -> user_obj
+const memberMap = new Map();  // guild_id -> map<member_id,members> (contains roles+nick+boost+mute)
 const channelMap = new Map();
+const guildNameMap = new Map(); // guild_id -> string
 const rolePositions = new Map();
 var sents = []
 beta = true;
-version = "v0.12.1"+(beta?" beta":"")
+version = "v0.13.1"+(beta?" beta":"")
 
 
 // privilaged intents codes:
@@ -558,6 +559,7 @@ snowflakeToTime = function(snowflake) {
 
 modules = {
   nop: null,
+  incrementalLog: null,
   userMemory: null,
   joinMessages: null,
   inviteLogging: null,
@@ -571,10 +573,17 @@ modules.nop = {
   name: "nop",
   onDispatch: (bot,msg)=>{}
 }
+modules.incrementalLog = {
+  name: "incrementalLog",
+  onDispatch: (bot,msg)=>{
+    fs.appendFileSync("contacts"+(beta?"beta/":"/")+"latest.log",JSON.stringify(msg)+'\n')
+  }
+}
 modules.userMemory = {
   name: "userMemory",
   onDispatch: (bot,msg)=>{
     if (msg.t === "GUILD_CREATE") {
+      guildNameMap.set(msg.d.id,msg.d.name)
       msg.d.members.forEach(a=>{
         if (!userMap.has(a.user.id)) {
           userMap.set(a.user.id,a.user);
@@ -585,6 +594,9 @@ modules.userMemory = {
       msg.d.members.forEach(member=>modules.userMemory.mergeMember(msg.d.id,member.user.id,member));
       msg.d.roles.forEach(role=>rolePositions.set(role.id,role.position));
       msg.d.channels.forEach(channel=>channelMap.set(channel.id,channel));
+    }
+    if (msg.t === "GUILD_UPDATE") {
+      guildNameMap.set(msg.d.id,msg.d.name)
     }
     if (msg.t === "USER_UPDATE") {
       userMap.set(msg.user.id,msg.user);
@@ -1094,6 +1106,7 @@ tempModules.genRules = {
 
 // production branch
 if (!beta) {
+  bot.addModule(modules.incrementalLog)
   bot.addModule(modules.userMemory)
   bot.addModule(modules.joinMessages)
   bot.addModule(modules.inviteLogging)
@@ -1111,6 +1124,7 @@ if (!beta) {
 
 // beta branch
 if (beta) {
+  bot.addModule(modules.incrementalLog)
   bot.addModule(modules.userMemory)
   // bot.addModule(modules.joinMessages)
   // bot.addModule(modules.inviteLogging)
