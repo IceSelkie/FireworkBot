@@ -388,7 +388,9 @@ discordRequest = function(path, data=null, method="GET", useToken=true) {
       timeSend:Date.now()
     };
     sents.push(saveObject);
-    console.log(JSON.stringify(saveObject));
+    saveStr = JSON.stringify(saveObject)
+    console.log(saveStr);
+    fs.appendFileSync("contacts"+(beta?"beta/":"/")+"latest.log",saveStr+"\n")
 
     let req = https.request(opts,
       res=>{
