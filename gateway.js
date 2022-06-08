@@ -668,7 +668,7 @@ modules.joinMessages = {
                  'A new dragonet has hatched! Everybody welcome {USER}!',
                  '{USER} has risen from the under a mountain! Hopefully {USER} isn\'t Darkstalker...',
                  'The __Eye of Onyx__ fortold that _The One_ is coming! And now here is {USER}! Maybe {USER} is _The One_...?'],
-  genJoinMessage: u=> ""+modules.joinMessages.messagesJoin[Math.floor(Math.random() * modules.joinMessages.messagesJoin.length)].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
+  genJoinMessage: u=> ""+modules.joinMessages.messagesJoin[u.id % modules.joinMessages.messagesJoin.length].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
   messagesLeave: ['{USER} has left.',
                   '{USER} is now gone.',
                   'We will miss you, {USER}.',
@@ -678,7 +678,7 @@ modules.joinMessages = {
                   '{USER} got too close to the dragonflame cacti.',
                   '{USER} left. Hopefully {USER} will dreamvisit us...',
                   '{USER} left Pyrrhia.'],
-  genLeaveMessage: u=> ""+modules.joinMessages.messagesLeave[Math.floor(Math.random() * modules.joinMessages.messagesLeave.length)].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
+  genLeaveMessage: u=> ""+modules.joinMessages.messagesLeave[u.id % modules.joinMessages.messagesLeave.length].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
   onDispatch: (bot,msg) => {
     if (msg.t === "GUILD_MEMBER_ADD") {
       let user = msg.d.user; // {username,public_flags,id,discriminator,avatar}
@@ -690,7 +690,7 @@ modules.joinMessages = {
           timestamp: new Date(msg.time).toISOString(),
           color: 5767045,
           author: {
-            name:"A new FanWing has arrived!",
+            name: "A new FanWing has arrived!",
             icon_url: "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".png?size=256"
           },
           description: modules.joinMessages.genJoinMessage(user),
@@ -698,7 +698,6 @@ modules.joinMessages = {
             {name:"Account Age",value: timeDuration(snowflakeToTime(user.id), msg.time,999)}],
           footer: {text:user.id}
         }]};
-      sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
       if (modules.joinMessages.guildJoinChannels.has(guild))
         sendMessage(modules.joinMessages.guildJoinChannels.get(guild),message).then(a=>console.log(a));
     }
@@ -714,7 +713,7 @@ modules.joinMessages = {
           timestamp: new Date(msg.time).toISOString(),
           color: 16729871,
           author: {
-            name:"A FanWing has left!",
+            name: "A FanWing has left!",
             icon_url: "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".png?size=256"
           },
           description: modules.joinMessages.genLeaveMessage(user),
@@ -723,7 +722,6 @@ modules.joinMessages = {
             {name:"Roles",value: member.roles.length==0?"none":"<@&"+member.roles.join("> <@&")+">"}],
           footer: {text:user.id}
         }]};
-      sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
       if (modules.joinMessages.guildJoinChannels.has(guild))
         sendMessage(modules.joinMessages.guildJoinChannels.get(guild),message).then(a=>console.log(a));
     }
