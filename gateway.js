@@ -9,12 +9,52 @@ const memberMap = new Map();
 const channelMap = new Map();
 const rolePositions = new Map();
 var sents = []
-version = "v0.10.1 beta"
+beta = true;
+version = "v0.12.1"+(beta?" beta":"")
 
 
 // privilaged intents codes:
 //  w/o       w/
 // 32509    32767
+
+
+const dispatchTypes = [  // GUILDS (1 << 0)
+  "GUILD_CREATE", "GUILD_UPDATE", "GUILD_DELETE", "GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE", "GUILD_ROLE_DELETE",
+  "CHANNEL_CREATE", "CHANNEL_UPDATE", "CHANNEL_DELETE", "CHANNEL_PINS_UPDATE", "THREAD_CREATE", "THREAD_UPDATE",
+  "THREAD_DELETE", "THREAD_LIST_SYNC", "THREAD_MEMBER_UPDATE", "THREAD_MEMBERS_UPDATE"/* * */, "STAGE_INSTANCE_CREATE",
+  "STAGE_INSTANCE_UPDATE", "STAGE_INSTANCE_DELETE", 
+  // GUILD_MEMBERS (1 << 1)
+  "GUILD_MEMBER_ADD", "GUILD_MEMBER_UPDATE", "GUILD_MEMBER_REMOVE", "THREAD_MEMBERS_UPDATE"/* * */,
+  // GUILD_BANS (1 << 2)
+  "GUILD_BAN_ADD", "GUILD_BAN_REMOVE",
+  // GUILD_EMOJIS_AND_STICKERS (1 << 3)
+  "GUILD_EMOJIS_UPDATE", "GUILD_STICKERS_UPDATE",
+  // GUILD_INTEGRATIONS (1 << 4)
+  "GUILD_INTEGRATIONS_UPDATE", "INTEGRATION_CREATE", "INTEGRATION_UPDATE", "INTEGRATION_DELETE",
+  // GUILD_WEBHOOKS (1 << 5)
+  "WEBHOOKS_UPDATE",
+  // GUILD_INVITES (1 << 6)
+  "INVITE_CREATE", "INVITE_DELETE",
+  // GUILD_VOICE_STATES (1 << 7)
+  "VOICE_STATE_UPDATE",
+  // GUILD_PRESENCES (1 << 8)
+  "PRESENCE_UPDATE",
+  // GUILD_MESSAGES (1 << 9)
+  "MESSAGE_CREATE", "MESSAGE_UPDATE", "MESSAGE_DELETE", "MESSAGE_DELETE_BULK",
+  // GUILD_MESSAGE_REACTIONS (1 << 10)
+  "MESSAGE_REACTION_ADD", "MESSAGE_REACTION_REMOVE", "MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE_EMOJI",
+  // GUILD_MESSAGE_TYPING (1 << 11)
+  "TYPING_START",
+  // DIRECT_MESSAGES (1 << 12)
+  "MESSAGE_CREATE", "MESSAGE_UPDATE", "MESSAGE_DELETE", "CHANNEL_PINS_UPDATE",
+  // DIRECT_MESSAGE_REACTIONS (1 << 13)
+  "MESSAGE_REACTION_ADD", "MESSAGE_REACTION_REMOVE", "MESSAGE_REACTION_REMOVE_ALL", "MESSAGE_REACTION_REMOVE_EMOJI",
+  // DIRECT_MESSAGE_TYPING (1 << 14)
+  "TYPING_START",
+  // GUILD_SCHEDULED_EVENTS (1 << 16)
+  "GUILD_SCHEDULED_EVENT_CREATE", "GUILD_SCHEDULED_EVENT_UPDATE", "GUILD_SCHEDULED_EVENT_DELETE",
+  "GUILD_SCHEDULED_EVENT_USER_ADD", "GUILD_SCHEDULED_EVENT_USER_REMOVE"
+]
 
 
 oldlog = console.log;
@@ -47,8 +87,20 @@ class Bot {
     this.sessionID = null;
     this.self = null; // the user object for this bot.
     this.modules = [];
+    this.plannedMessages = []; // heap of messages to be sent; tags of when to send and if late messages okay.
     this.timeStart = Date.now();
     this.timeLastReconnect = null;
+
+    try {
+      let data = fs.readFileSync("firework_config.json").toString();
+      data = JSON.parse(data);
+      this.config = data;
+    } catch (err) {}
+    try {
+      let data = fs.readFileSync("firework_plannedactions.json").toString();
+      data = JSON.parse(data);
+      this.plannedMessages = data;
+    } catch (err) {}
   }
 
   wsSend = function(webhookPacket) {
@@ -252,8 +304,8 @@ class Bot {
     oldlog(timeDuration(this.timeStart,this.contacts[this.contacts.length-1].time));
     oldlog(new Date(this.contacts[this.contacts.length-1].time));
     oldlog(this.contacts.length/1000);
-    fs.writeFileSync("contacts/"+this.contacts[0].time+"-"+this.contacts.length+".json",JSON.stringify(this.contacts));
-    fs.writeFileSync("contacts/"+this.contacts[0].time+"-"+this.contacts.length+"-sents.json",JSON.stringify(sents));
+    fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+".json",JSON.stringify(this.contacts));
+    fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+"-sents.json",JSON.stringify(sents));
     oldlog(version);
   }
 
@@ -564,25 +616,61 @@ modules.userMemory = {
     }
   }
 }
+modules.guildMemory = {
+  name: "guildMemory",
+  types: dispatchTypes.filter(t=>t.includes("GUILD")),
+  onDispatch: (bot,msg) => {
+    if (types.includes(msg.t)) {
+      let action = 'unknown';
+      if      (msg.t.includes('CREATE') || msg.t.includes('ADD')   )  action = 'create';
+      else if (msg.t.includes('UPDATE')                            )  action = 'update';
+      else if (msg.t.includes('DELETE') || msg.t.includes('REMOVE'))  action = 'remove';
+      let area = 'guild';
+      if      (msg.t.startsWith('GUILD_BAN'            )) area = 'bans';
+      else if (msg.t.startsWith('GUILD_ROLE'           )) area = 'roles';
+      else if (msg.t.startsWith('GUILD_MEMBER'         )) area = 'members';
+      else if (msg.t.startsWith('GUILD_EMOJIS'         )) area = 'emojis';
+      else if (msg.t.startsWith('GUILD_STICKERS'       )) area = 'stickers';
+      else if (msg.t.startsWith('GUILD_INTEGRATIONS'   )) area = 'integrations';
+      else if (msg.t.startsWith('GUILD_SCHEDULED_EVENT')) area = 'event';
+    }
+  }
+}
 
 modules.joinMessages = {
   name: "joinMessages",
-  postChannel: ["870500800613470248","870868727820849183","713444513833680909"],
-  messagesJoin: ['{USER} is here to kick butt and chew scavenger! And {USER} is all out of scavenger.',
-                 'Please welcome {USER} to Pyrrhia!',
+
+  postChannel: ["870868727820849183","883172908418084954"],
+  guildJoinChannels: new Map([["713127035156955276","713444513833680909"], //wofcs
+                              ]),
+  messagesJoin: ['Please welcome {USER} to Pyrrhia!',
                  'Please welcome {USER} to Pantala!',
-                 "Welcome to the dragon's den, {USER}!",
+                 'Welcome to the dragons\' den, {USER}!',
+                 'Welcome, {USER}! Our wings are open to you!',
                  'Welcome, {USER}! We wish you the power of the wings of fire!',
-                 'The __Eye of Onyx__ fortold that _The One_ is coming! And now here is {USER}! Maybe {USER} is _The One_...?',
-                 '{USER} is here. Did they bring snacks?',
-                 '{USER} is here now. Will this keep Darkstalker away?'],
+                 '{USER} came here to hide from the rain. Please give them a warm welcome!',
+                 '{USER} arrived! Let the party commence!',
+                 '{USER} is here now. Did they bring snacks?',
+                 '{USER} is here now. Will this keep Darkstalker away?',
+                 'Our NightWing seer foresaw {USER}\'s arrival. And here {USER} is!',
+                 'A new dragonet has hatched! Everybody welcome {USER}!',
+                 '{USER} has risen from the under a mountain! Hopefully {USER} isn\'t Darkstalker...',
+                 'The __Eye of Onyx__ fortold that _The One_ is coming! And now here is {USER}! Maybe {USER} is _The One_...?'],
   genJoinMessage: u=> ""+modules.joinMessages.messagesJoin[Math.floor(Math.random() * modules.joinMessages.messagesJoin.length)].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
   messagesLeave: ['{USER} has left.',
-                  '{USER} is now gone.'],
+                  '{USER} is now gone.',
+                  'We will miss you, {USER}.',
+                  'Where did {USER} go?',
+                  'What will we do now that {USER} has left?',
+                  'Oh no! {USER} disappeared!',
+                  '{USER} got too close to the dragonflame cacti.',
+                  '{USER} left. Hopefully {USER} will dreamvisit us...',
+                  '{USER} left Pyrrhia.'],
   genLeaveMessage: u=> ""+modules.joinMessages.messagesLeave[Math.floor(Math.random() * modules.joinMessages.messagesLeave.length)].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
   onDispatch: (bot,msg) => {
     if (msg.t === "GUILD_MEMBER_ADD") {
       let user = msg.d.user; // {username,public_flags,id,discriminator,avatar}
+      let guild = msg.d.guild_id;
       // let message = {content: modules.joinMessages.genJoinMessage(user)};
       let message = {embeds:[
         {
@@ -599,9 +687,12 @@ modules.joinMessages = {
           footer: {text:user.id}
         }]};
       sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
+      if (modules.joinMessages.guildJoinChannels.has(guild))
+        sendMessage(modules.joinMessages.guildJoinChannels.get(guild),message).then(a=>console.log(a));
     }
     if (msg.t === "GUILD_MEMBER_REMOVE") {
       let user = msg.d.user; // {username,public_flags,id,discriminator,avatar}
+      let guild = msg.d.guild_id;
       // let message = {content: modules.joinMessages.genLeaveMessage(user)};
       let member = memberMap.get(msg.d.guild_id).get(user.id);
       member.roles.sort((a,b)=>rolePositions.get(b)-rolePositions.get(a));
@@ -617,10 +708,12 @@ modules.joinMessages = {
           description: modules.joinMessages.genLeaveMessage(user),
           fields: [{name: "Username",value: user.username+"#"+user.discriminator+" • <@"+user.id+">"},
             {name:"Time On Server",value: timeDuration(Date.parse(member.joined_at),msg.time,999)},
-            {name:"Roles",value: "<@&"+member.roles.join("> <@&")+">"}],
+            {name:"Roles",value: member.roles.length==0?"none":"<@&"+member.roles.join("> <@&")+">"}],
           footer: {text:user.id}
         }]};
       sendMessage(modules.joinMessages.postChannel,message).then(a=>console.log(a));
+      if (modules.joinMessages.guildJoinChannels.has(guild))
+        sendMessage(modules.joinMessages.guildJoinChannels.get(guild),message).then(a=>console.log(a));
     }
   }
 }
@@ -630,30 +723,40 @@ modules.inviteLogging = {
   name: "inviteLogging",
   inviteMap: new Map(),
   inviteLoggingChannel: "750509276707160126",
+  guildInviteLogChannels: new Map([["713127035156955276","750509276707160126"], //wofcs
+                              ]),
   onDispatch: (bot,msg) => {
     let map = modules.inviteLogging.inviteMap;
-    if (msg.t === "INVITE_CREATE")
-      sendMessage(modules.inviteLogging.inviteLoggingChannel,{
+    if (msg.t === "INVITE_CREATE"){
+      guild = msg.d.guild_id;
+      message = {
         embeds:[{color:5797096,title:"Invite Created",
           description:"<@"+msg.d.inviter.id+"> created invite code `"+msg.d.code+"` for <#"+msg.d.channel_id+">."
             +'\n\n'+(msg.d.max_uses===0?"∞":msg.d.max_uses)+" uses"
             +" • "
             +"expires "+(msg.d.max_age==0?"never":"<t:"+(Math.floor(msg.time/1000)+msg.d.max_age)+":R>")+"."
         }]
-      });
+      }
+      if (modules.inviteLogging.guildInviteLogChannels.has(guild))
+        sendMessage(modules.inviteLogging.guildInviteLogChannels.get(guild),message).then(a=>console.log(a));
+    }
     if (msg.t === "INVITE_DELETE") {
-      sendMessage(modules.inviteLogging.inviteLoggingChannel,{
+      guild = msg.d.guild_id;
+      message = {
         embeds:[{color:5797096,title:"Invite Deleted",
           description:"<@"+map.get(msg.d.code).user.id+">'s invite code `"+msg.d.code+"` for <#"+msg.d.channel_id+"> was deleted."
                     +'\n\n'+map.get(msg.d.code).uses+'/'+(map.get(msg.d.code).max_uses===0?"∞":map.get(msg.d.code).max_uses)+" uses"
                     +" • "
                     +"expires "+(map.get(msg.d.code).max_age==0?"never":"<t:"+(Math.floor(map.get(msg.d.code).time/1000)+map.get(msg.d.code).max_age)+":R>")+"."
         }]
-      });
+      };
+      if (modules.inviteLogging.guildInviteLogChannels.has(guild))
+        sendMessage(modules.inviteLogging.guildInviteLogChannels.get(guild),message).then(a=>console.log(a));
       map.delete(msg.d.code);
     }
     let invites_promise;
     if (msg.t === "GUILD_MEMBER_ADD") {
+      guild = msg.d.guild_id;
       // On join, check invites, find difference, and that was which invite was used.
       invites_promise = discordRequest("guilds/"+msg.d.guild_id+"/invites");
       invites_promise.then(
@@ -667,14 +770,14 @@ modules.inviteLogging = {
             });
           console.log("Candidate Invite Links:");
           console.log(candidates);
+          let message_object = {embeds:[]}
           if (candidates.length === 0)
-            sendMessage(modules.inviteLogging.inviteLoggingChannel,{embeds:[{color:5797096,title:"Invite Used",
+            message_object.embeds.push({embeds:[{color:5797096,title:"Invite Used",
               description:"<@"+msg.d.user.id+"> joined the server... But no invite code was found to have been used...?"}]});
           else if (candidates.length > 10) {
-            sendMessage(modules.inviteLogging.inviteLoggingChannel,{embeds:[{color:5797096,title:"Invite Used",
+            message_object.embeds.push({embeds:[{color:5797096,title:"Invite Used",
               description:"<@"+msg.d.user.id+"> joined the server... But more than 10 possible invites were found to have been used...?"}]});
           } else {
-            let message_object = {embeds:[]}
             for (let i=0; i<candidates.length; i++)
               message_object.embeds.push(
                 {color:5797096,title:"Invite Used",
@@ -684,7 +787,8 @@ modules.inviteLogging = {
                     +"expires "+(candidates[i].max_age==0?"never":"<t:"+(Math.floor(candidates[i].time/1000)+candidates[i].max_age)+":R>")+"."
                 }
               );
-            sendMessage(modules.inviteLogging.inviteLoggingChannel,message_object).then(a=>console.log(a));
+            if (modules.inviteLogging.guildInviteLogChannels.has(guild))
+              sendMessage(modules.inviteLogging.guildInviteLogChannels.get(guild),message_object).then(a=>console.log(a));
           }
         });
     }
@@ -923,6 +1027,12 @@ tempModules.createThread = {
     }
   }
 };
+tempModules.acceptDirectMessage = {
+  name: "temp_acceptDirectMessage",
+  onDispatch: (bot,msg) => {
+    // check if new message is from dms or not.
+  }
+}
 tempModules.securityIssue = {
   name: "temp_securityIssue",
   onDispatch: (bot,msg) => {
@@ -975,32 +1085,41 @@ tempModules.genRules = {
 
 
 
-// // production branch
-// bot.addModule(modules.userMemory)
-// bot.addModule(modules.joinMessages)
-// bot.addModule(modules.inviteLogging)
-// bot.addModule(modules.disboardReminder)
-// bot.addModule(modules.threadLogging)
-// bot.addModule(modules.infoHelpUptime)
-// bot.addModule(modules.embeds)
 
-// // bot.addModule(tempModules.createThread)
-// bot.addModule(tempModules.securityIssue)
-// // bot.addModule(tempModules.genRules)
 
+
+
+
+
+
+// production branch
+if (!beta) {
+  bot.addModule(modules.userMemory)
+  bot.addModule(modules.joinMessages)
+  bot.addModule(modules.inviteLogging)
+  bot.addModule(modules.disboardReminder)
+  bot.addModule(modules.threadLogging)
+  bot.addModule(modules.infoHelpUptime)
+  bot.addModule(modules.embeds)
+
+  // bot.addModule(tempModules.createThread)
+  bot.addModule(tempModules.securityIssue)
+  // bot.addModule(tempModules.genRules)
+}
 
 
 
 // beta branch
-bot.addModule(modules.userMemory)
-// bot.addModule(modules.joinMessages)
-// bot.addModule(modules.inviteLogging)
-// bot.addModule(modules.disboardReminder)
-// bot.addModule(modules.threadLogging)
-bot.addModule(modules.infoHelpUptime)
-// bot.addModule(modules.embeds)
+if (beta) {
+  bot.addModule(modules.userMemory)
+  // bot.addModule(modules.joinMessages)
+  // bot.addModule(modules.inviteLogging)
+  // bot.addModule(modules.disboardReminder)
+  // bot.addModule(modules.threadLogging)
+  bot.addModule(modules.infoHelpUptime)
+  // bot.addModule(modules.embeds)
 
-bot.addModule(tempModules.createThread)
-bot.addModule(tempModules.securityIssue)
-bot.addModule(tempModules.genRules)
-
+  bot.addModule(tempModules.createThread)
+  bot.addModule(tempModules.securityIssue)
+  bot.addModule(tempModules.genRules)
+}
