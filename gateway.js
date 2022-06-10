@@ -7,11 +7,12 @@ const reconnectInterval = 4000;
 const userMap = new Map();    // user_id -> user_obj
 const memberMap = new Map();  // guild_id -> map<member_id,members> (contains roles+nick+boost+mute)
 const channelMap = new Map();
+const threadMap = new Map();
 const guildNameMap = new Map(); // guild_id -> string
 const rolePositions = new Map();
 var sents = []
 beta = true;
-version = "v0.13.1"+(beta?" beta":"")
+version = "v0.15.1"+(beta?" beta":"")
 
 
 // privilaged intents codes:
@@ -734,7 +735,6 @@ modules.joinMessages = {
 modules.inviteLogging = {
   name: "inviteLogging",
   inviteMap: new Map(),
-  inviteLoggingChannel: "750509276707160126",
   guildInviteLogChannels: new Map([["713127035156955276","750509276707160126"], //wofcs
                               ]),
   onDispatch: (bot,msg) => {
@@ -868,20 +868,42 @@ modules.disboardReminder = {
 
 modules.threadLogging = {
   name: "threadLogging",
+  guildThreadLogChannels: new Map([["713127035156955276","750509276707160126"], //wofcs
+                              ]),
+  threadChangesToIgnore: ["member_count","message_count","last_message_id","thread_metadata.archive_timestamp"],
   onDispatch: (bot, msg) => {
+    let guild = msg.d.guild_id
     if (msg.t === "THREAD_CREATE") {
-      sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Thread Created",
-              description:"<#"+msg.d.id+"> was created in <#"+msg.d.parent_id+">.\n\nThread by <@"+msg.d.owner_id+">."}]});
+      let message = {embeds:[{color:5797096,title:"Thread Created",
+              description:"<#"+msg.d.id+"> "+JSON.stringify(msg.d.name)+" was created in <#"+msg.d.parent_id+"> #"+channelMap.get(msg.d.parent_id).name+".\n\nThread by <@"+msg.d.owner_id+">."}]}
+      if (modules.threadLogging.guildThreadLogChannels.has(guild))
+        sendMessage(modules.threadLogging.guildThreadLogChannels.get(guild),message).then(a=>console.log(a));
+      threadMap.set(msg.d.id,msg.d)
     }
     if (msg.t === "THREAD_DELETE") {
-      sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Thread THREAD_DELETE",
-              description:"<#"+msg.d.id+"> was created in <#"+msg.d.parent_id+">.\n\nSee server audit logs for more information."}]});
+      let message = {embeds:[{color:5797096,title:"Thread THREAD_DELETE",
+              description:"<#"+msg.d.id+"> "+JSON.stringify(msg.d.name)+" was deleted in <#"+msg.d.parent_id+"> #"+channelMap.get(msg.d.parent_id).name+".\n\nSee server audit logs for more information."}]}
+      if (modules.threadLogging.guildThreadLogChannels.has(guild))
+        sendMessage(modules.threadLogging.guildThreadLogChannels.get(guild),message).then(a=>console.log(a));
     }
     if (msg.t === "THREAD_UPDATE") {
-      sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Thread Modified",
-              description:"<#"+msg.d.id+"> in <#"+msg.d.parent_id+"> was modified in some way."
-              +"\n(This could be title change, or the thread getting archived!)"
-              +"\n\nThread originally by <@"+msg.d.owner_id+">."}]});
+      let diffText = "Unknown changes. See firework logs."
+      try {
+        let diffo = getDiffObj(threadMap.get(msg.d.id),msg.d)
+        let diffs = getDiffsFromDiffObj(diffo)
+        diffText = []
+        console.log(diffs)
+        diffs = diffs.filter(a=>{return modules.threadLogging.threadChangesToIgnore.indexOf(a[1].join("."))==-1})
+        diffs.forEach(a=>diffText.push(a[1].join('.')+" -> "+diffToText(getWithin(diffo,a[1]))))
+        diffText = "Attributes changed ("+diffs.length+"): \n> "+diffText.join("\n> ")
+      } catch (e) {console.error("Diff failed:",e)}
+      let message = {embeds:[{color:5797096,title:"Thread Modified",
+              description:"<#"+msg.d.id+"> "+JSON.stringify(msg.d.name)+" in <#"+msg.d.parent_id+"> #"+channelMap.get(msg.d.parent_id).name+" created by <@"+msg.d.owner_id+"> was modified."
+              +"\n"+diffText
+            }]}
+      if (modules.threadLogging.guildThreadLogChannels.has(guild))
+        sendMessage(modules.threadLogging.guildThreadLogChannels.get(guild),message).then(a=>console.log(a));
+      threadMap.set(msg.d.id,msg.d)
     }
     if (msg.t === "GUILD_UPDATE") {
       sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Server Modified",
