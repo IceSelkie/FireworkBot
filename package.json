@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "erlpack": "^0.1.3",
     "ws": "^8.2.0"
   }
 }
