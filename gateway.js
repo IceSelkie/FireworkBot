@@ -60,15 +60,17 @@ const dispatchTypes = [  // GUILDS (1 << 0)
 
 
 oldlog = console.log;
-console.log= (a,b,c,d) =>{
+console.log=(a,b,c,d)=>{
   if (d!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b,c,d);
   else if (c!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b,c);
   else if (b!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b);
   else oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a);}
 olderr = console.error;
-console.error= (a) =>{olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a)}
-
-
+console.error=(a,b,c,d)=>{
+  if (d!==undefined) olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a,b,c,d);
+  else if (d!==undefined) olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a,b,c);
+  else if (d!==undefined) olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a,b);
+  else olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a);}
 
 
 
