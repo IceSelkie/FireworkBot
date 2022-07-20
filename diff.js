@@ -5,13 +5,14 @@ RT = "RIGHT"
 DP = "DIFF_PRIM"
 DO = "DIFF_OBJ"
 
+// enum ObjectType OBJECT, ARRAY, STRING, NUMBER, BOOLEAN, NULL, FUNCTION, UNDEFINED, BIGINT
 
-getDiffs = null            // a,b -> [[difftype, depthkey], ...]
-getDiffsFromDiffObj = null // diffobj -> [[difftype, depthkey], ...]
-getDiffObj = null          // a,b -> diffobj
+// getDiffs = null            // a,b -> [[difftype, depthkey], ...]
+// getDiffsFromDiffObj = null // diffobj -> [[difftype, depthkey], ...]
+// getDiffObj = null          // a,b -> diffobj
 
-getWithin = null           // a,[k1,...,kn] -> a[k1][...][kn]
-diffToText = null          // [difftype, left, (right)] -> "Changed from L to R"
+// getWithin = null           // a,[k1,...,kn] -> a[k1][...][kn]
+// diffToText = null          // [difftype, left, (right)] -> "Changed from L to R"
 
 
 function getDiffObj(a,b) {

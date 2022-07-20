@@ -4,20 +4,26 @@ const fs = require("fs");
 const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("token.json").toString())).token}};
 const heartbeatUpdateInterval = 500;
 const reconnectInterval = 4000;
-const userMap = new Map();    // user_id -> user_obj
-const memberMap = new Map();  // guild_id -> map<member_id,members> (contains roles+nick+boost+mute)
-const channelMap = new Map();
-const threadMap = new Map();
+const userMap = new Map();      // user_id -> user_obj
+const memberMap = new Map();    // guild_id -> map<member_id,members> (contains roles+nick+boost+mute)
+const channelMap = new Map();   // channel_id -> channel_obj
+const threadMap = new Map();    // thread_id -> thread_obj
 const guildNameMap = new Map(); // guild_id -> string
-const rolePositions = new Map();
+const rolePositions = new Map();// role_id -> number (used to sort role orders when user leaves)
 var sents = []
-beta = true;
-version = "v0.15.1"+(beta?" beta":"")
+beta = false; // sets which set of modules to use (prevents spam when debugging)
+version = "v0.16.1"+(beta?" beta":"")
 
 
 // privilaged intents codes:
 //  w/o       w/
 // 32509    32767
+
+// avatars: https://cdn.discordapp.com/avatars/{uid}/{avatar_hash}.png?size=4096
+
+
+const g_wofcs = "713127035156955276"
+const c_dm = "870868315793391686"
 
 
 const dispatchTypes = [  // GUILDS (1 << 0)
@@ -73,6 +79,12 @@ console.error=(a,b,c,d)=>{
   else olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a);}
 
 
+load = function() {
+  JSON.parse(fs.readFileSync('cache.json')).forEach(a=>threadMap.set(a[0],a[1]))
+}
+save = function() {
+  fs.writeFileSync("cache.json",JSON.stringify([...threadMap.entries()]))
+}
 
 class Bot {
   constructor() {
@@ -80,8 +92,8 @@ class Bot {
     this.lastSequence = null;
     this.lastHeartbeat = 0;
     this.heartbeatShouldBeRunning = false;
-    this.types = new Map();
-    this.contacts = [];
+    this.types = new Map(); // dispatch_type -> count
+    this.contacts = [];  // TODO: Crashes on outputting more than 500mb. Split into 100k segments on output?
     // var sents = []; // global cuz refactoring is pain
     this.print = false; // print all dispatch to logs
     // this.send = true; // false to disable sending messages via sendMessage method
@@ -314,9 +326,6 @@ class Bot {
   }
 
 
-  g = function(s) {
-    console.log(JSON.stringify(this.contacts[s-1],null,2));
-  }
   term = function() {
     // this.ws.terminate()
     this.ws.close(4321)
@@ -364,7 +373,14 @@ bot = new Bot();
 
 
 
-discordRequest = function(path, data=null, method="GET", useToken=true) {
+// const WebSocket = require("ws").WebSocket;
+// const https = require("https");
+// const fs = require("fs");
+// const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("token.json").toString())).token}};
+// const heartbeatUpdateInterval = 500;
+
+
+function discordRequest(path, data=null, method="GET", useToken=true) {
   // console.log("Discord Request called with path of:")
   // console.log(path)
   // console.log("Discord Request called with data of:")
@@ -422,7 +438,7 @@ discordRequest = function(path, data=null, method="GET", useToken=true) {
     req.end();
   });
 }
-sendMessage = async function(channel_id, message_object) {
+async function sendMessage(channel_id, message_object) {
   // TODO:
   //   - check ratelimit
   //   - if ratelimit hit; wait and try again.
@@ -451,61 +467,9 @@ replyToMessage = async function(original, message_object) {
   return sendMessage(original.channel_id,message_object);
 }
 
-timeDuration = function(start, end, depth=2, descriptors) {
-  // if (start==null)
-  //   return null;
-  // if (descriptors==null || !(descriptors instanceof Array))
-  //   descriptors = [['ms',1000],['s',60],['m',60],['hr',24],['d']];
-  // if (depth==null)
-  //   depth = 2;
-
-  // let duration = start;
-  // if (end!=null)
-  //   duration = end-start;
-
-  // if (duration==0)
-  //   return "0ms";
-  // let ret = duration<0?"-":"";
-  // duration = duration<0?-duration:duration;
-
-  // //
-  // let stack = [];
-  // for (let i = 0; i < descriptors.length-1; i++) {
-  //   console.log(stack);
-  //   if (descriptors[i] == null || !(descriptors[i] instanceof Array) || descriptors[i].length<2) {
-  //     console.log("invalid entry")
-  //     stack.push(null);
-  //     continue;
-  //   }
-  //   if (descriptors[i][0] == null) {
-  //     console.log("scale ratio with no name")
-  //     stack.push(null);
-  //     duration /= descriptors[i][1];
-  //     continue;
-  //   }
-  //   console.log("actual thing")
-  //   stack.push(duration%descriptors[i][1]);
-  //   duration = Math.floor(duration/descriptors[i][1])
-  // }
-  // if (duration!=0)
-  // stack.push(duration);
-  // console.log(stack);
-  // for (let i = stack.length-1; i >= 0 && depth > 0; i--) {
-  //   console.log("attempt "+i)
-  //   if (stack[i] == null)
-  //     continue;
-  //   if (i==0 || stack[i]!=0) {
-  //    ret += stack[i] + descriptors[i][0];
-  //     depth--;
-  //   }
-  //   console.log(ret,depth);
-  // }
-
-  // return ret;
+function timeDuration (start, end) {
   if (start==null)
     return null;
-  if (depth==null)
-    depth = 999;
 
   let duration = start;
   if (end!=null)
@@ -555,16 +519,62 @@ timeDuration = function(start, end, depth=2, descriptors) {
   return ret2.flat().join(" ");
 }
 
-snowflakeToTime = function(snowflake) {
+function snowflakeToTime(snowflake) {
   return Number(BigInt(snowflake)/4194304n+1420070400000n);
 }
+
+function userLookup(uid,gid) {
+  try {
+    let username = userMap.get(uid).username + "#" + userMap.get(uid).discriminator
+    let nick = undefined
+    if (memberMap.has(gid)) {
+      let guildmap = memberMap.get(gid)
+      if (guildmap.has(uid)) {
+        let member = guildmap.get(uid)
+        if (member.nick)
+          nick = member.nick
+      }
+    }
+    if (nick)
+      return '`'+nick+'` (`'+username+'` <@'+uid+'> '+uid+')'
+    return '`'+username+'` (<@'+uid+'> '+uid+')'
+  } catch (e) {console.error(e)}
+  return 'User Not Found (<@'+uid+'> '+uid+')'
+}
+function guildLookup(gid) {
+  try {
+    if (guildNameMap.has(gid))
+      return '`'+guildNameMap.get(gid)+'` ('+gid+')'
+  } catch (e) {console.error(e)}
+  return 'Guild Not Found ('+gid+')'
+}
+function channelLookup(cid) {
+  try {
+    if (channelMap.has(cid))
+      return '`#'+channelMap.get(cid).name+'` (<#'+cid+'> '+cid+')'
+  } catch (e) {console.error(e)}
+  return 'Channel Not Found (<#'+cid+'> '+cid+')'
+}
+function findMessage(mid) {
+  let ret = []
+  bot.contacts.forEach(a=>{if(a.t==="MESSAGE_CREATE" && a.d.id === mid) ret.push(a)})
+  return ret
+}
+
+
+
+
+
+
+
+
 
 
 
 
 modules = {
   nop: null,
-  incrementalLog: null,
+  // incrementalLog: null,
   userMemory: null,
   joinMessages: null,
   inviteLogging: null,
@@ -578,12 +588,12 @@ modules.nop = {
   name: "nop",
   onDispatch: (bot,msg)=>{}
 }
-modules.incrementalLog = {
-  name: "incrementalLog",
-  onDispatch: (bot,msg)=>{
-    fs.appendFileSync("contacts"+(beta?"beta/":"/")+"latest.log",JSON.stringify(msg)+'\n')
-  }
-}
+// modules.incrementalLog = {
+//   name: "incrementalLog",
+//   onDispatch: (bot,msg)=>{
+//     // fs.appendFileSync("contacts"+(beta?"beta/":"/")+"latest.log",JSON.stringify(msg)+'\n')
+//   }
+// }
 modules.userMemory = {
   name: "userMemory",
   onDispatch: (bot,msg)=>{
@@ -601,7 +611,8 @@ modules.userMemory = {
       msg.d.channels.forEach(channel=>channelMap.set(channel.id,channel));
     }
     if (msg.t === "GUILD_UPDATE") {
-      guildNameMap.set(msg.d.id,msg.d.name)
+      if (msg.d.name)
+        guildNameMap.set(msg.d.id,msg.d.name)
     }
     if (msg.t === "USER_UPDATE") {
       userMap.set(msg.user.id,msg.user);
@@ -745,7 +756,7 @@ modules.inviteLogging = {
       guild = msg.d.guild_id;
       message = {
         embeds:[{color:5797096,title:"Invite Created",
-          description:"<@"+msg.d.inviter.id+"> created invite code `"+msg.d.code+"` for <#"+msg.d.channel_id+">."
+          description:"Invite code `"+msg.d.code+"` for "+channelLookup(msg.d.channel_id)+" by "+userLookup(msg.d.inviter.id,msg.d.guild_id)+"."
             +'\n\n'+(msg.d.max_uses===0?"∞":msg.d.max_uses)+" uses"
             +" • "
             +"expires "+(msg.d.max_age==0?"never":"<t:"+(Math.floor(msg.time/1000)+msg.d.max_age)+":R>")+"."
@@ -758,7 +769,7 @@ modules.inviteLogging = {
       guild = msg.d.guild_id;
       message = {
         embeds:[{color:5797096,title:"Invite Deleted",
-          description:"<@"+map.get(msg.d.code).user.id+">'s invite code `"+msg.d.code+"` for <#"+msg.d.channel_id+"> was deleted."
+          description:"Invite code `"+msg.d.code+"` for "+channelLookup(msg.d.channel_id)+" by "+userLookup(map.get(msg.d.code).user.id, msg.d.guild_id)+"."
                     +'\n\n'+map.get(msg.d.code).uses+'/'+(map.get(msg.d.code).max_uses===0?"∞":map.get(msg.d.code).max_uses)+" uses"
                     +" • "
                     +"expires "+(map.get(msg.d.code).max_age==0?"never":"<t:"+(Math.floor(map.get(msg.d.code).time/1000)+map.get(msg.d.code).max_age)+":R>")+"."
@@ -780,22 +791,24 @@ modules.inviteLogging = {
             a=>{
               if (map.has(a.code)) console.log("pre: "+map.get(a.code).uses);
               if (map.has(a.code) && a.uses!=map.get(a.code).uses)
-                candidates.push({code:a.code,uses:a.uses,max_uses:a.max_uses,max_age:a.max_age,time:Date.parse(a.created_at),inviter_id:a.inviter.id});
+                candidates.push({code:a.code,uses:a.uses,max_uses:a.max_uses,max_age:a.max_age,time:Date.parse(a.created_at),inviter_id:a.inviter.id,channel_id:a.channel_id});
             });
           console.log("Candidate Invite Links:");
           console.log(candidates);
           let message_object = {embeds:[]}
           if (candidates.length === 0)
             message_object.embeds.push({embeds:[{color:5797096,title:"Invite Used",
-              description:"<@"+msg.d.user.id+"> joined the server... But no invite code was found to have been used...?"}]});
+              description:userLookup(msg.d.user.id,msg.d.guild_id)+" joined the server... But no invite code was found to have been used...?"}]});
           else if (candidates.length > 10) {
             message_object.embeds.push({embeds:[{color:5797096,title:"Invite Used",
-              description:"<@"+msg.d.user.id+"> joined the server... But more than 10 possible invites were found to have been used...?"}]});
+              description:userLookup(msg.d.user.id,msg.d.guild_id)+" joined the server... But more than 10 possible invites were found to have been used...?"}]});
           } else {
             for (let i=0; i<candidates.length; i++)
               message_object.embeds.push(
                 {color:5797096,title:"Invite Used",
-                  description:"<@"+msg.d.user.id+"> used invite code `"+candidates[i].code+"` by <@"+candidates[i].inviter_id+">!"
+                  description:"Invite code `"+candidates[i].code+"` for "+channelLookup(candidates.channel_id)+"!"
+                    +'\n  Created by: '+userLookup(candidates[i].inviter_id,msg.d.guild_id)
+                    +'\n  Used by: '+userLookup(msg.d.user.id,msg.d.guild_id)
                     +'\n\n'+candidates[i].uses+'/'+(candidates[i].max_uses===0?"∞":candidates[i].max_uses)+" uses"
                     +" • "
                     +"expires "+(candidates[i].max_age==0?"never":"<t:"+(Math.floor(candidates[i].time/1000)+candidates[i].max_age)+":R>")+"."
@@ -858,9 +871,12 @@ modules.disboardReminder = {
           modules.disboardReminder.lastBump = Date.now();
           console.log("Disboard bumped! Timer set for 2 hours.")
           let bumpLink = "https://discord.com/channels/"+msg.d.guild_id+"/"+msg.d.channel_id+"/"+msg.d.id;
-          sendMessage("870868315793391686",{embeds:[{description:"A [bump]("+bumpLink+") was just done in {GUILD_NAME} by {REGEX.GROUPS[1]}"}]});
+          let guildName = guildLookup(msg.d.guild_id)
+          let memberName = userLookup(msg.d.interaction.user.id, msg.d.guild_id)
+          sendMessage("870868315793391686",{embeds:[{description:"A [bump]("+bumpLink+") was just done in "+guildName+" by "+memberName}]});
           setTimeout(()=>sendMessage(msg.d.channel_id,{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [up here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
           setTimeout(()=>sendMessage("870868315793391686",{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
+          setTimeout(()=>sendMessage(msg.d.channel_id,"A new bump can now be done with `/bump`."),2*60*60*1000);
           setTimeout(()=>sendMessage("870868315793391686","A new bump can now be done."),2*60*60*1000);
         }
       }
@@ -937,12 +953,13 @@ modules.infoHelpUptime = {
           reconnect = (reconnect==null)?"never":reconnect+" ago";
           replyToMessage(msg.d,"Firework bot ("+version+")\n"
             +"> "+"Shard count: "+1+"\n"
+            +"> "+"Online for: "+online+"\n"
             +"> "+"Received: "+bot.contacts.length+" packets\n"
             +"> "+"Sent: "+sents.length+" packets\n"
             +"> "+"Seen: "+bot.types.get("MESSAGE_CREATE")+" messages\n"
-            +"> "+"Online for: "+online+"\n"
-            //+"> "+"Reconnected: "+reconnect_count+"\n"
-            +"> "+"Last reconnect: "+reconnect);
+            //+"> "+"Times reconnected: "+reconnect_count+"\n"
+            //+"> "+"Last reconnect: "+reconnect
+            );
         }
         if (/^(?: help)$/i.test(message)) {
           replyToMessage(msg.d,"Firework bot ("+version+")\n"
@@ -1130,7 +1147,7 @@ tempModules.genRules = {
 
 // production branch
 if (!beta) {
-  bot.addModule(modules.incrementalLog)
+  // bot.addModule(modules.incrementalLog)
   bot.addModule(modules.userMemory)
   bot.addModule(modules.joinMessages)
   bot.addModule(modules.inviteLogging)
@@ -1148,7 +1165,7 @@ if (!beta) {
 
 // beta branch
 if (beta) {
-  bot.addModule(modules.incrementalLog)
+  // bot.addModule(modules.incrementalLog)
   bot.addModule(modules.userMemory)
   // bot.addModule(modules.joinMessages)
   // bot.addModule(modules.inviteLogging)
