@@ -446,9 +446,6 @@ function discordRequest(path, data=null, method="GET", useToken=true) {
       timeSend:Date.now()
     };
     sents.push(saveObject);
-    saveStr = JSON.stringify(saveObject)
-    console.log(saveStr);
-    fs.appendFileSync("contacts"+(beta?"beta/":"/")+"latest.log",saveStr+"\n")
 
     let req = https.request(opts,
       res=>{
@@ -509,8 +506,19 @@ replyToMessage = async function(original, message_object) {
 
 
 function commandAndPrefix(content) {
-  // if (/^<!?@870750872504786944> execute /.test(msg.d.content))
-  return content === "<@870750872504786944> rank"
+  if (!/^<@!?870750872504786944> /.test(content))
+    return false;
+  let ret = {
+    original:content,
+    rest:content.substring(content.indexOf(">")+2),
+    hasNext:()=>this,
+    next:()=>{
+      let ret = this.rest.substring(0,content.indexOf(" "));
+      this.rest = rest.substring(rest.indexOf(" ")+1);
+      return ret;
+    }
+  }
+  return ret;
 }
 
 function timeDuration (start, end) {
@@ -977,6 +985,10 @@ modules.threadLogging = {
               description:"The server was modified in some way."
               +"\n(This could be rename, server icon change, owner change, or similar!)"}]});
     }
+
+    // Should also read threads from active threads on start.
+    // if (msg.t === "GUILD_CREATE" && msg.d.threads)
+    //   msg.d.threads.forEach(a=>modules.threadAlive.threads.set(a.id,a));
   }
 }
 
@@ -1126,11 +1138,9 @@ modules.xp = {
     "728676188641558571", // #spamming
     "713159752296693792", // #counting
     "744059079994900623", // #one-word-story
-    "713154571664490537", // #memes
-    "730170402109653112", // #advertising
-    "730218384024797266"  // #bot-commands
+    "730170402109653112"  // #advertising
   ]),
-  ignored_roles: new Set(["713510512150839347", "778861562965393438"]), // BotWing and Muted
+  ignored_roles: new Set(["778861562965393438"]), // Muted
   level_nofif: new Map([
       [
         "713127035156955276", // WOFCS
@@ -1164,7 +1174,8 @@ modules.xp = {
       canEarn = false;
     }
 
-    if (d.member.roles.filter(a=>m.ignored_roles.has(a)).length>0) {
+    // webhooks have no d.member element
+    if (d.member && d.member.roles.filter(a=>m.ignored_roles.has(a)).length>0) {
       console.log("cannot: forbidden role")
       canEarn = false;
     }
@@ -1205,7 +1216,9 @@ modules.xp = {
   },
   isRequestingLevels: (m, d) => {
     let command = commandAndPrefix(d.content);
-    return command //=== "rank"
+    // TODO if command, return command [2] -> which user to get rank of
+    return command // === "rank"
+
   },
   replyWithXp: (m, d, time) => {
     let user = d.author;
