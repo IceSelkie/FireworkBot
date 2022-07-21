@@ -1076,34 +1076,45 @@ modules.threadAlive = {
   threads: new Map(),
   threadAlive: null,
   onDispatch: (bot,msg) => {
-    // Keep threads alive by keeping a list of which threads to keep alive, 
-    // then sending a "reset-thread-auto-archive-time" post to discord each
-    // 20 hours or so to keep the thread alive.
-    if (msg.t === "GUILD_CREATE" && msg.d.threads)
-      msg.d.threads.forEach(a=>modules.threadAlive.threads.set(a.id,a));
-    if (msg.t === "THREAD_UPDATE" || msg.t === "THREAD_CREATE")
-      modules.threadAlive.threads.set(msg.d.id,msg.d);
-    if (msg.t === "THREAD_DELETE")
-      modules.threadAlive.threads.delete(msg.d.id);
-    if (modules.threadAlive.threadAlive == null) {
-      load()
-      if (!config.threadAlive)
-        config.threadAlive = ["865472395468341249","870412032594309140","870973611597500466","872489560339259392","873029741786038273","873187457066237993","873847355814838292","874103479910670406","881228174208413696"];
-      save()
-      // Read thread-keep-alive-list in from configs.
-      config.threadAlive.forEach(
-        a=>{
-          if (!modules.threadAlive.threads.has(a))
-            modules.threadAlive.keepThreadAlive(a);
-        });
+    // // Keep threads alive by keeping a list of which threads to keep alive, 
+    // // then sending a "reset-thread-auto-archive-time" post to discord each
+    // // 20 hours or so to keep the thread alive.
+    // if (msg.t === "GUILD_CREATE" && msg.d.threads)
+    //   msg.d.threads.forEach(a=>modules.threadAlive.threads.set(a.id,a));
+    // if (msg.t === "THREAD_UPDATE" || msg.t === "THREAD_CREATE")
+    //   modules.threadAlive.threads.set(msg.d.id,msg.d);
+    // if (msg.t === "THREAD_DELETE")
+    //   modules.threadAlive.threads.delete(msg.d.id);
+    // if (modules.threadAlive.threadAlive == null) {
+    //   load()
+    //   if (!config.threadAlive)
+    //     config.threadAlive = ["865472395468341249","870412032594309140","870973611597500466","872489560339259392","873029741786038273","873187457066237993","873847355814838292","874103479910670406","881228174208413696"];
+    //   save()
+    //   // Read thread-keep-alive-list in from configs.
+    //   config.threadAlive.forEach(
+    //     a=>{
+    //       if (!modules.threadAlive.threads.has(a))
+    //         modules.threadAlive.keepThreadAlive(a);
+    //     });
+    // }
+    // // Date.parse(thread.archive_timestamp)
+    if (msg.t === "THREAD_UPDATE" && config.threadAlive.indexOf(msg.d.id) && msg.d.thread_metadata.archived == true)
+      modules.threadAlive.keepThreadAlive(msg.d.id);
+
+    if (msg.t === "MESSAGE_CREATE") {
+      let command = commandAndPrefix(msg.d.content)
+      if (command == "thread")
+      if (command == "alive")
+      if (config.threadAlive.indexOf(command)==-1)
+        config.threadAlive.push(command);
     }
-    // Date.parse(thread.archive_timestamp)
   },
   // Duration 1440 is 1 day for non-boosted servers
   // Duration 4320 is 3 days for tier 1 boosted servers
   // Duration 10080 is 7 days for tier 2 boosted servers
   keepThreadAlive: (channel_id, duration = 1440) => {
-    discordRequest("https://discord.com/api/v9/channels/"+channel_id,{"archived":false,"locked":false,"auto_archive_duration":duration},"PATCH");
+    discordRequest("https://discord.com/api/v9/channels/"+channel_id,{"archived":false,"PATCH");
+    // discordRequest("https://discord.com/api/v9/channels/"+channel_id,{"archived":false,"locked":false,"auto_archive_duration":duration},"PATCH");
   }
 }
 
