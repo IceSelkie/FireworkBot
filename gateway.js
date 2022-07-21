@@ -81,22 +81,11 @@ console.error=(a,b,c,d)=>{
   else olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a);}
 
 
-var config = {
-  "threadAlive": [
-    "865472395468341249",
-    "870412032594309140",
-    "870973611597500466",
-    "872489560339259392",
-    "873029741786038273",
-    "873187457066237993",
-    "873847355814838292",
-    "874103479910670406",
-    "881228174208413696"
-  ]
-};
+var config = null;
 load = function() {
   // Typically Unchanging
   config = JSON.parse(fs.readFileSync("config.json"));
+  config.threadAlive = new Set(config.threadAlive);
 
   // Load data that typically changes
   if (fs.existsSync("data.json")) {
@@ -110,7 +99,9 @@ load = function() {
 }
 save = function() {
   // Typically Unchanging
+  config.threadAlive = [...config.threadAlive];
   fs.writeFileSync("config.json", JSON.stringify(config,null,2));
+  config.threadAlive = new Set(config.threadAlive);
 
   // Data that typically changes
   fs.writeFileSync("data.json",JSON.stringify({
@@ -1010,9 +1001,9 @@ modules.threadLogging = {
               description:"<#"+msg.d.id+"> "+JSON.stringify(msg.d.name)+" in <#"+msg.d.parent_id+"> #"+channelMap.get(msg.d.parent_id).name+" created by <@"+msg.d.owner_id+"> was modified."
               +"\n"+diffText
             }]}
+      threadMap.set(msg.d.id,msg.d)
       if (modules.threadLogging.guildThreadLogChannels.has(guild))
         sendMessage(modules.threadLogging.guildThreadLogChannels.get(guild),message).then(a=>console.log(a));
-      threadMap.set(msg.d.id,msg.d)
     }
     if (msg.t === "GUILD_UPDATE") {
       sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Server Modified",
@@ -1021,8 +1012,8 @@ modules.threadLogging = {
     }
 
     // Should also read threads from active threads on start.
-    // if (msg.t === "GUILD_CREATE" && msg.d.threads)
-    //   msg.d.threads.forEach(a=>modules.threadAlive.threads.set(a.id,a));
+    if (msg.t === "GUILD_CREATE" && msg.d.threads)
+      msg.d.threads.forEach(a=>threadMap.set(a.id,a));
   }
 }
 
@@ -1122,44 +1113,83 @@ modules.threadAlive = {
   threads: new Map(),
   threadAlive: null,
   onDispatch: (bot,msg) => {
-    // // Keep threads alive by keeping a list of which threads to keep alive, 
-    // // then sending a "reset-thread-auto-archive-time" post to discord each
-    // // 20 hours or so to keep the thread alive.
-    // if (msg.t === "GUILD_CREATE" && msg.d.threads)
-    //   msg.d.threads.forEach(a=>modules.threadAlive.threads.set(a.id,a));
-    // if (msg.t === "THREAD_UPDATE" || msg.t === "THREAD_CREATE")
-    //   modules.threadAlive.threads.set(msg.d.id,msg.d);
-    // if (msg.t === "THREAD_DELETE")
-    //   modules.threadAlive.threads.delete(msg.d.id);
-    // if (modules.threadAlive.threadAlive == null) {
-    //   load()
-    //   if (!config.threadAlive)
-    //     config.threadAlive = ["865472395468341249","870412032594309140","870973611597500466","872489560339259392","873029741786038273","873187457066237993","873847355814838292","874103479910670406","881228174208413696"];
-    //   save()
-    //   // Read thread-keep-alive-list in from configs.
-    //   config.threadAlive.forEach(
-    //     a=>{
-    //       if (!modules.threadAlive.threads.has(a))
-    //         modules.threadAlive.keepThreadAlive(a);
-    //     });
-    // }
-    // // Date.parse(thread.archive_timestamp)
-    if (msg.t === "THREAD_UPDATE" && config.threadAlive.indexOf(msg.d.id) && msg.d.thread_metadata.archived == true)
+    if (msg.t === "THREAD_UPDATE" && config.threadAlive.has(msg.d.id) && msg.d.thread_metadata.archived == true)
       modules.threadAlive.keepThreadAlive(msg.d.id);
 
     if (msg.t === "MESSAGE_CREATE") {
-      let command = commandAndPrefix(msg.d.content)
-      if (command == "thread")
-      if (command == "alive")
-      if (config.threadAlive.indexOf(command)==-1)
-        config.threadAlive.push(command);
+      let command = commandAndPrefix(msg.d.content);
+      if (!command || command.shift() !== "thread" || command.shift() !== "alive")
+        return;
+      let action = command.shift(); // add or remove
+      let tid = command.shift();
+      if (action === "list") {
+        replyToMessage(msg.d,"* "+[...config.threadAlive].map(a=>threadMap.get(a)).map(a=>a?"<#"+a.id+"> - "+a.name:a).join("\n* "))
+        return;
+      }
+      if (action !== "add" && action !== "remove") {
+        modules.threadAlive.showUsage(msg.d);
+      }
+      let gid = msg.d.guild_id;
+      if (!tid && threadMap.has(msg.d.channel_id))
+        return modules.threadAlive.addThread(gid,msg.d.channel_id,msg.d);
+
+      if (threadMap.has(tid)) {
+        let thread = threadMap.get(cid);
+        if (gid === thread.guild_id)
+          // Add thread to keepalive list
+          modules.threadAlive.addThread(gid,tid,msg.d);
+      } else {
+        // verify tid is a snowflake
+        // A thread must be created after the server and not in the future.
+        let valid = false;
+        try {
+          valid = (snowflakeToTime(tid)>snowflakeToTime(gid)) && (new Date()>snowflakeToTime(tid))
+        } catch (e) {}
+        if (valid) {
+          discordRequest('https://discord.com/api/v9/channels/'+tid).then(a=>{
+            let thread = JSON.parse(a.res);
+            if (a.ret !== 200) {
+              // Thread Not Found
+              modules.threadAlive.threadNotFound(msg.d);
+            } else {
+              if (!thread.thread_metadata) {
+                // Thread Not Found
+                modules.threadAlive.threadNotFound(msg.d);
+              } else {
+                threadMap.set(thread.id,thread);
+                // Add thread to keepalive list
+                modules.threadAlive.addThread(gid,tid,msg.d);
+              }
+            }
+          });
+        } else {
+          // Thread Not Found
+          modules.threadAlive.threadNotFound(msg.d);
+        }
+      }
     }
+  },
+  addThread: (gid, tid, d) => {
+    let thread = threadMap.get(tid);
+    if (thread.guild_id!==gid)
+      return modules.threadAlive.threadNotFound(d);
+    config.threadAlive.add(tid);
+    save();
+    replyToMessage(d, "Thread added to keepThreadAlive list.");
+    if (thread.thread_metadata.archived)
+      modules.threadAlive.keepThreadAlive(thread.id);
+  },
+  threadNotFound: (d) => {
+    replyToMessage(d, "Thread not found.");
+  },
+  showUsage: (d) => {
+    replyToMessage(d, "Thread Keep Alive\n> Command:\n>  • `thread alive add [tid]`")
   },
   // Duration 1440 is 1 day for non-boosted servers
   // Duration 4320 is 3 days for tier 1 boosted servers
   // Duration 10080 is 7 days for tier 2 boosted servers
   keepThreadAlive: (channel_id, duration = 1440) => {
-    discordRequest("https://discord.com/api/v9/channels/"+channel_id,{"archived":false,"PATCH");
+    discordRequest("https://discord.com/api/v9/channels/"+channel_id,{"archived":false},"PATCH");
     // discordRequest("https://discord.com/api/v9/channels/"+channel_id,{"archived":false,"locked":false,"auto_archive_duration":duration},"PATCH");
   }
 }
