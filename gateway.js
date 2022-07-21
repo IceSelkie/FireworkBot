@@ -504,21 +504,55 @@ replyToMessage = async function(original, message_object) {
 }
 
 
+var parseCommandRegex = null
+function parseCommandToArgs(input) {
+  if (!parseCommandRegex) {
+    let stringGrouping = '"[^"\\\\]*(?:\\\\[\\S\\s][^"\\\\]*)*"'
+
+    let allStrings = 
+      "(?:"+ // NCG Open ━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ([                                    // ┃
+          stringGrouping,                     // ┃
+          stringGrouping.replaceAll('"',"'"), // ┃
+          stringGrouping.replaceAll('"','`')  // ┃
+        ].join('|'))+                         // ┃
+      ")" // NCG Close ━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+    let weirdThingIdk = '(?:\\/[^\\/\\\\]*(?:\\\\[\\S\\s][^\\/\\\\]*)*\\/[gimy]*(?=\\s|$))'
+
+    // Note: CG = capturing group; NCG = non-caputuring group
+    let regex = 
+      '('+      //  CG 1 Open ━━━━━━━━━━━━━━━━━━━━━┓
+        '(?:'+  // NCG 2 Open ━━━━━━━━━━━━━━━━━━━┓ ┃
+          allStrings+ // ══════════════════════╡ ┃ ┃
+          '|'+ // or                             ┃ ┃
+//        weirdThingIdk+ // ═══════════════════╡ ┃ ┃
+//        '|'+ // or                             ┃ ┃
+          '(?:'+ // NCG 3 Open ━━━━━━━━━━━━━━━━┓ ┃ ┃
+            '\\\\\\\\'+ // escaped backslash   ┃ ┃ ┃
+            '|'+ // or                         ┃ ┃ ┃
+            '\\\\[\\s\\S]'+ // escaped any     ┃ ┃ ┃
+            '|'+ // or                         ┃ ┃ ┃
+            '[^\\s\\\\]'+ // anything else     ┃ ┃ ┃
+          ')'+  // NCG 3 Close ━━━━━━━━━━━━━━━━┛ ┃ ┃
+        ')'+  // NCG 2 Close ━━━━━━━━━━━━━━━━━━━━┛ ┃
+        '+'+  // NCG 2 Repeat 1 or more            ┃
+      ')'+  // CG 1 Close ━━━━━━━━━━━━━━━━━━━━━━━━━┛
+      '(?=\\s|$)'; // Lookahead to ensure whitespace/end follows
+
+    console.log(regex)
+    // convert to a regex object
+    parseCommandRegex = RegExp(regex,"g");
+  }
+  return [...input.matchAll(parseCommandRegex)].map(a=>a[0])
+}
 
 function commandAndPrefix(content) {
-  if (!/^<@!?870750872504786944> /.test(content))
-    return false;
-  let ret = {
-    original:content,
-    rest:content.substring(content.indexOf(">")+2),
-    hasNext:()=>this,
-    next:()=>{
-      let ret = this.rest.substring(0,content.indexOf(" "));
-      this.rest = rest.substring(rest.indexOf(" ")+1);
-      return ret;
-    }
+  let argv = parseCommandToArgs(content)
+  if (/<@!?870750872504786944>/.test(argv.shift())) {
+    return argv;
   }
-  return ret;
+  return false;
 }
 
 function timeDuration (start, end) {
@@ -1156,12 +1190,13 @@ modules.xp = {
 
     let m = modules.xp;
 
-    console.log("can earn xp?")
+    console.log("can earn xp?");
     if (m.canEarnXp(m, msg.d, msg.time))
       m.addXp(m, msg.d.guild_id, msg.d.author.id, msg.time);
 
-    if (m.isRequestingLevels(m, msg.d))
-      m.replyWithXp(m, msg.d, msg.time);
+    let target = m.isRequestingLevels(m, msg.d);
+    if (target)
+      m.replyWithXp(m, target, msg.d, msg.time);
 
     // if (getleaderboard())
     //   replywithleaderboard()
@@ -1216,14 +1251,20 @@ modules.xp = {
   },
   isRequestingLevels: (m, d) => {
     let command = commandAndPrefix(d.content);
-    // TODO if command, return command [2] -> which user to get rank of
-    return command // === "rank"
-
+    if (!command)
+      return;
+    let next = command.shift();
+    if (next.toLowerCase() !== "rank")
+      return false;
+    return command.length>0?command[0]:d.author.id;
   },
-  replyWithXp: (m, d, time) => {
+  replyWithXp: (m, target, d, time) => {
     let user = d.author;
-    let rank = m.getRank(m,d.guild_id,user.id)
-    let xpobj = m.fetchXp(d.guild_id,user.id);
+    let gid = d.guild_id;
+    if (memberMap.get(gid).has(target))
+      user = memberMap.get(gid).get(target).user;
+    let xpobj = m.fetchXp(gid,user.id);
+    let rank = m.getRank(m,gid,user.id)
 
     let xp_message = {embeds:[
         {
@@ -1241,7 +1282,7 @@ modules.xp = {
       ]};
     replyToMessage(d, xp_message);
   },
-  getRank: (m,gid, uid) => {
+  getRank: (m, gid, uid) => {
     // For each user in guild -> count how many have xp above
     let xpobj = m.fetchXp(gid,uid);
     let gxp = userXpMap.get(gid).entries();
@@ -1259,11 +1300,22 @@ modules.xp = {
 modules.saveLoad = {
   name: "saveLoad",
   onDispatch: (bot, msg) => {
-    let command = commandAndPrefix(d.content);
-    if command == "save"
+
+    if (msg.t !== "MESSAGE_CREATE")
+      return;
+    let command = commandAndPrefix(msg.d.content);
+    if (!command)
+      return;
+
+    let first = command.shift()
+    if (first == "save") {
       save()
-    if command == "load"
+      replyToMessage(msg.d,"Save attempted.")
+    }
+    if (first == "load") {
       load()
+      replyToMessage(msg.d,"Load attempted.")
+    }
   }
 }
 
@@ -1394,7 +1446,7 @@ if (beta) {
   // bot.addModule(modules.disboardReminder)
   // bot.addModule(modules.threadLogging)
   bot.addModule(modules.infoHelpUptime)
-  bot.addModule(modules.embeds)
+  // bot.addModule(modules.embeds)
   bot.addModule(modules.threadAlive)
   bot.addModule(modules.xp)
   bot.addModule(modules.saveLoad)
