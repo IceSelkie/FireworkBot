@@ -1243,6 +1243,17 @@ modules.xp = {
   }
 }
 
+modules.saveLoad = {
+  name: "saveLoad",
+  onDispatch: (bot, msg) => {
+    let command = commandAndPrefix(d.content);
+    if command == "save"
+      save()
+    if command == "load"
+      load()
+  }
+}
+
 
 
 
@@ -1328,16 +1339,6 @@ tempModules.genRules = {
   }
 }
 
-modules.saveLoad = {
-  name: "saveLoad",
-  onDispatch: (bot, msg) => {
-    let command = commandAndPrefix(d.content);
-    if command == "save"
-      save()
-    if command == "load"
-      load()
-  }
-}
 
 
 
@@ -1360,6 +1361,7 @@ if (!beta) {
   bot.addModule(modules.threadLogging)
   bot.addModule(modules.infoHelpUptime)
   // bot.addModule(modules.embeds)
+  // bot.addModule(modules.threadAlive)
   // bot.addModule(modules.xp)
   bot.addModule(modules.saveLoad)
 
@@ -1380,6 +1382,7 @@ if (beta) {
   // bot.addModule(modules.threadLogging)
   bot.addModule(modules.infoHelpUptime)
   bot.addModule(modules.embeds)
+  bot.addModule(modules.threadAlive)
   bot.addModule(modules.xp)
   bot.addModule(modules.saveLoad)
 
