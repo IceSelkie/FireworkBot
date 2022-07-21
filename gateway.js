@@ -1399,6 +1399,63 @@ tempModules = {
   genRules: null
 }
 
+tempModules.rss = {
+  name: "rss",
+  // lastPubDate: "2021-09-09 08:52:18", // next to last
+  lastPubDate: "2021-08-31 23:35:08", // brianna
+  lastCheckTime: 0,
+  onDispatch: (bot,msg) => {
+    if (Date.now() > modules.rss.lastCheckTime+300000) {
+      console.log("Checking rss...")
+      modules.rss.lastCheckTime = Date.now();
+      discordRequest("https://api.rss2json.com/v1/api.json?rss_url=https://wingsoffire.fandom.com/wiki/Special:NewPages?feed=rss",null,null,false).
+        then(a=>modules.rss.response(a))
+    }
+  },
+  response: (a) => {
+    console.log("Parsing rss...");
+    console.log(a.res);
+    if (a.res.length<2000)
+      delete a.res;
+    console.log(a);
+    if (a.ret == 403) {
+      console.error("RSS returned Forbidden!");
+      if (!modules.rss.hasComplained)
+        sendMessage("870500800613470248","Requesting WoF Wiki's recently created pages returned Forbidden!");
+      modules.rss.hasComplained = true;
+    }
+
+    let wss = JSON.parse(a.res);
+    console.log("Parsed rss.");
+    let lastPubDate = modules.rss.lastPubDate;
+    let messageQueue = [];
+    for (let i=0; i<wss.items.length && wss.items[i].pubDate!==lastPubDate; i++) {
+      console.log("Checking i="+i);
+      let item = wss.items[i];
+      let rssEmbed = {
+        "title": 'WoF Wikia - New Article Created: '+JSON.stringify(item.title),
+        "description": item.description,
+        "url": item.link,
+        "color": 7441133,
+        "fields": [{"name": "Creator", "value": item.author}]
+      }
+      messageQueue.push({embeds:[rssEmbed]});
+    }
+    let callback = (i) => {console.log("callback failed.")}
+    callback = (i) => {
+      if (i>=0)
+        sendMessage("870500800613470248",messageQueue[i]);
+      if (i>0)
+        setTimeout(()=>callback(i-1),1500);
+      else
+        console.log("callback loop done.")
+    }
+    callback(messageQueue.length-1);
+    console.log("done with loop")
+    modules.rss.lastPubDate = wss.items[0].pubDate;
+  }
+}
+
 tempModules.createThread = {
   name: "temp_createThread",
   onDispatch: (bot,msg) => {
