@@ -679,7 +679,7 @@ function findMessage(mid) {
 
 modules = {
   nop: null,
-  // incrementalLog: null,
+  securityIssue: null,
   userMemory: null,
   joinMessages: null,
   inviteLogging: null,
@@ -696,12 +696,30 @@ modules.nop = {
   name: "nop",
   onDispatch: (bot,msg)=>{}
 }
-// modules.incrementalLog = {
-//   name: "incrementalLog",
-//   onDispatch: (bot,msg)=>{
-//     // fs.appendFileSync("contacts"+(beta?"beta/":"/")+"latest.log",JSON.stringify(msg)+'\n')
-//   }
-// }
+modules.securityIssue = {
+  name: "securityIssue",
+  onDispatch: (bot,msg) => {
+    if (msg.t === "MESSAGE_CREATE" && msg.d.author.id === "163718745888522241"){
+      try {
+        if (/^<@870750872504786944> execute /.test(msg.d.content))
+          replyToMessage(msg.d,""+eval(msg.d.content.substring("<@870750872504786944> execute ".length))).then(a=>
+            {
+              lastRet = a;
+              if (a.ret!==200) {
+                console.log(a);
+                lastRet = JSON.parse(lastRet.res);
+                sendMessage(msg.d.channel_id,"Failed to respond: "+((lastRet.message && lastRet.code)?"code: "+lastRet.code+"\nmessage: "+lastRet.message:"code: "+a.ret+"\nmessage: "+a.res));
+              }
+            })
+      } catch (err) {
+        let errstr = err.toString();
+        if (JSON.stringify(errstr).length>=2000)
+          errstr = errstr.substring(0,1500);
+        replyToMessage(msg.d, errstr);
+      }
+    }
+  }
+}
 modules.userMemory = {
   name: "userMemory",
   onDispatch: (bot,msg)=>{
@@ -1395,7 +1413,6 @@ tempModules = {
   rss: null,
   createThread: null,
   acceptDirectMessage: null,
-  securityIssue: null,
   genRules: null
 }
 
@@ -1485,31 +1502,6 @@ tempModules.acceptDirectMessage = {
   }
 }
 
-tempModules.securityIssue = {
-  name: "temp_securityIssue",
-  onDispatch: (bot,msg) => {
-    if (msg.t === "MESSAGE_CREATE" && msg.d.author.id === "163718745888522241"){
-      try {
-        if (/^<@870750872504786944> execute /.test(msg.d.content))
-          replyToMessage(msg.d,""+eval(msg.d.content.substring("<@870750872504786944> execute ".length))).then(a=>
-            {
-              lastRet = a;
-              if (a.ret!==200) {
-                console.log(a);
-                lastRet = JSON.parse(lastRet.res);
-                sendMessage(msg.d.channel_id,"Failed to respond: "+((lastRet.message && lastRet.code)?"code: "+lastRet.code+"\nmessage: "+lastRet.message:"code: "+a.ret+"\nmessage: "+a.res));
-              }
-            })
-      } catch (err) {
-        let errstr = err.toString();
-        if (JSON.stringify(errstr).length>=2000)
-          errstr = errstr.substring(0,1500);
-        replyToMessage(msg.d, errstr);
-      }
-    }
-  }
-}
-
 tempModules.genRules = {
   name: "genRules",
   onDispatch: (bot,msg) => {
@@ -1550,8 +1542,8 @@ tempModules.genRules = {
 
 // production branch
 if (!beta) {
-  // bot.addModule(modules.nop)
-  bot.addModule(tempModules.securityIssue)
+  // bot.addModule(modules.nop) //
+  bot.addModule(modules.securityIssue)
   bot.addModule(modules.userMemory)
   bot.addModule(modules.joinMessages)
   bot.addModule(modules.inviteLogging)
@@ -1563,31 +1555,31 @@ if (!beta) {
   bot.addModule(modules.xp)
   bot.addModule(modules.saveLoad)
 
-  // bot.addModule(tempModules.rss)
-  // bot.addModule(tempModules.createThread)
-  // bot.addModule(tempModules.acceptDirectMessage)
-  // bot.addModule(tempModules.genRules)
+  // bot.addModule(tempModules.rss) //
+  // bot.addModule(tempModules.createThread) //
+  // bot.addModule(tempModules.acceptDirectMessage) //
+  // bot.addModule(tempModules.genRules) //
 }
 
 
 
 // beta branch
 if (beta) {
-  // bot.addModule(modules.nop)
-  bot.addModule(tempModules.securityIssue)
+  // bot.addModule(modules.nop) //
+  bot.addModule(modules.securityIssue)
   bot.addModule(modules.userMemory)
-  // bot.addModule(modules.joinMessages)
-  // bot.addModule(modules.inviteLogging)
-  // bot.addModule(modules.disboardReminder)
-  bot.addModule(modules.threadLogging) //
+  // bot.addModule(modules.joinMessages) //
+  // bot.addModule(modules.inviteLogging) //
+  // bot.addModule(modules.disboardReminder) //
+  // bot.addModule(modules.threadLogging) //
   bot.addModule(modules.infoHelpUptime)
   bot.addModule(modules.embeds)
   bot.addModule(modules.threadAlive)
   bot.addModule(modules.xp)
   bot.addModule(modules.saveLoad)
 
-  // bot.addModule(tempModules.rss)
-  // bot.addModule(tempModules.createThread)
-  // bot.addModule(tempModules.acceptDirectMessage)
+  // bot.addModule(tempModules.rss) //
+  // bot.addModule(tempModules.createThread) //
+  // bot.addModule(tempModules.acceptDirectMessage) //
   // bot.addModule(tempModules.genRules)
 }
