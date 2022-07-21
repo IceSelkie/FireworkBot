@@ -81,11 +81,48 @@ console.error=(a,b,c,d)=>{
   else olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a);}
 
 
+var config = {
+  "threadAlive": [
+    "865472395468341249",
+    "870412032594309140",
+    "870973611597500466",
+    "872489560339259392",
+    "873029741786038273",
+    "873187457066237993",
+    "873847355814838292",
+    "874103479910670406",
+    "881228174208413696"
+  ]
+};
 load = function() {
-  JSON.parse(fs.readFileSync('cache.json')).forEach(a=>threadMap.set(a[0],a[1]))
+  // Typically Unchanging
+  config = JSON.parse(fs.readFileSync("config.json"));
+
+  // Load data that typically changes
+  if (fs.existsSync("data.json")) {
+    let data = JSON.parse(fs.readFileSync('data.json'));
+
+    Object.entries(data.threads).forEach(a=>threadMap.set(a[0],a[1]));
+
+    userXpMap.clear();
+    Object.entries(data.levels).forEach(a=>userXpMap.set(a[0],new Map(Object.entries(a[1]))));
+  } else console.error("Data JSON doesnt exist! Cannot read the Data That Typically Changes!");
 }
 save = function() {
-  fs.writeFileSync("cache.json",JSON.stringify([...threadMap.entries()]))
+  // Typically Unchanging
+  fs.writeFileSync("config.json", JSON.stringify(config,null,2));
+
+  // Data that typically changes
+  fs.writeFileSync("data.json",JSON.stringify({
+      threads:
+        Object.fromEntries([...threadMap.entries()]),
+      levels:
+        Object.fromEntries([...userXpMap.entries()].map(a=>[a[0],Object.fromEntries(a[1])]))
+    },null,2));
+
+  // cache = [...activityMap.entries()].map(a=>[a[0],[...a[1].entries()]])
+  // cache = {statusMap:Object.fromEntries(statusMap),activityMap:Object.fromEntries([...activityMap.entries()].map(a=>[a[0],Object.fromEntries(a[1])]))}
+  // fs.writeFileSync("cache.json",JSON.stringify(cache))
 }
 
 class Bot {
@@ -590,7 +627,10 @@ modules = {
   disboardReminder: null,
   threadLogging: null,
   infoHelpUptime: null,
-  embeds: null
+  embeds: null,
+  threadAlive: null,
+  xp: null,
+  saveLoad: null
 }
 
 modules.nop = {
@@ -1277,6 +1317,19 @@ tempModules.genRules = {
   }
 }
 
+modules.saveLoad = {
+  name: "saveLoad",
+  onDispatch: (bot, msg) => {
+    let command = commandAndPrefix(d.content);
+    if command == "save"
+      save()
+    if command == "load"
+      load()
+  }
+}
+
+
+
 
 
 
@@ -1295,8 +1348,9 @@ if (!beta) {
   bot.addModule(modules.disboardReminder)
   bot.addModule(modules.threadLogging)
   bot.addModule(modules.infoHelpUptime)
-  bot.addModule(modules.embeds)
+  // bot.addModule(modules.embeds)
   // bot.addModule(modules.xp)
+  bot.addModule(modules.saveLoad)
 
   // bot.addModule(tempModules.createThread)
   bot.addModule(tempModules.securityIssue)
@@ -1314,8 +1368,9 @@ if (beta) {
   // bot.addModule(modules.disboardReminder)
   // bot.addModule(modules.threadLogging)
   bot.addModule(modules.infoHelpUptime)
-  // bot.addModule(modules.embeds)
+  bot.addModule(modules.embeds)
   bot.addModule(modules.xp)
+  bot.addModule(modules.saveLoad)
 
   bot.addModule(tempModules.createThread)
   bot.addModule(tempModules.securityIssue)
