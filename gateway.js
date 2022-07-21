@@ -469,6 +469,13 @@ replyToMessage = async function(original, message_object) {
   return sendMessage(original.channel_id,message_object);
 }
 
+
+
+function commandAndPrefix(content) {
+  // if (/^<!?@870750872504786944> execute /.test(msg.d.content))
+  return content === "<@870750872504786944> rank"
+}
+
 function timeDuration (start, end) {
   if (start==null)
     return null;
