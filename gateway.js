@@ -25,7 +25,17 @@ version = "v0.16.1"+(beta?" beta":"")
 
 
 const g_wofcs = "713127035156955276"
+
 const c_dm = "870868315793391686"
+const c_fire = "870500800613470248" // firework-playground
+
+const u_selk = "163718745888522241"
+const u_syz = "642971818965073931"
+const u_gacek = "488383281935548436"
+
+const r_mod = "724461190897729596"
+const r_modling = "739602680653021274"
+const r_botwing = "713510512150839347"
 
 
 const dispatchTypes = [  // GUILDS (1 << 0)
@@ -353,6 +363,8 @@ class Bot {
     fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+".json",JSON.stringify(this.contacts));
     fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+"-sents.json",JSON.stringify(sents));
     oldlog(version);
+
+    save()
   }
 
 
@@ -546,6 +558,20 @@ function commandAndPrefix(content) {
   return false;
 }
 
+
+function isStaff(uid, gid) {
+  if (uid === "163718745888522241")
+    return true;
+  member = memberMap.get(gid).get(uid);
+  return (member && (member.roles.includes(r_mod) || member.roles.includes(r_modling)))
+}
+
+function isDev(uid) {
+  if (uid === "163718745888522241" || uid === "488383281935548436")
+    return true;
+}
+
+
 function timeDuration (start, end) {
   if (start==null)
     return null;
@@ -723,26 +749,6 @@ modules.userMemory = {
       if (old.user && !member.user)
         member.user = old.user;
       guildMap.set(user_id,member);
-    }
-  }
-}
-modules.guildMemory = {
-  name: "guildMemory",
-  types: dispatchTypes.filter(t=>t.includes("GUILD")),
-  onDispatch: (bot,msg) => {
-    if (types.includes(msg.t)) {
-      let action = 'unknown';
-      if      (msg.t.includes('CREATE') || msg.t.includes('ADD')   )  action = 'create';
-      else if (msg.t.includes('UPDATE')                            )  action = 'update';
-      else if (msg.t.includes('DELETE') || msg.t.includes('REMOVE'))  action = 'remove';
-      let area = 'guild';
-      if      (msg.t.startsWith('GUILD_BAN'            )) area = 'bans';
-      else if (msg.t.startsWith('GUILD_ROLE'           )) area = 'roles';
-      else if (msg.t.startsWith('GUILD_MEMBER'         )) area = 'members';
-      else if (msg.t.startsWith('GUILD_EMOJIS'         )) area = 'emojis';
-      else if (msg.t.startsWith('GUILD_STICKERS'       )) area = 'stickers';
-      else if (msg.t.startsWith('GUILD_INTEGRATIONS'   )) area = 'integrations';
-      else if (msg.t.startsWith('GUILD_SCHEDULED_EVENT')) area = 'event';
     }
   }
 }
@@ -1048,11 +1054,35 @@ modules.infoHelpUptime = {
             );
         }
         if (/^(?: help)$/i.test(message)) {
+
+          staff = isStaff(msg.d.author.id,msg.d.guild_id);
+          dev = isDev(msg.d.author.id,msg.d.guild_id);
+          hasModuleEmbeds = bot.modules.filter(a=>a.name==="embeds").length>0 && staff;
+          hasModuleXp = bot.modules.filter(a=>a.name==="xp").length>0;
+          hasModuleThreadAlive = bot.modules.filter(a=>a.name==="threadAlive").length>0 && staff;
+          hasModuleSaveLoad = bot.modules.filter(a=>a.name==="saveLoad").length>0 && dev;
+
           replyToMessage(msg.d,"Firework bot ("+version+")\n"
-            +"> "+"Commands:\n"
-            +"> "+" • `help  ` - displays this\n"
-            +"> "+" • `prefix` - the prefix (`@"+bot.self.username+"#"+bot.self.discriminator+"` or `<@"+bot.self.id+">`)\n"
-            +"> "+" • `stats ` - displays uptime and other basic statistics\n")
+            +"> "+"Default Commands:\n"
+            +"> "+" • `help  ` - Displays this\n"
+            +"> "+" • `prefix` - The prefix (`@"+bot.self.username+"#"+bot.self.discriminator+"` or `<@"+bot.self.id+">`)\n"
+            +"> "+" • `stats ` - Displays uptime and other basic statistics\n"
+            +(!hasModuleEmbeds?"":
+             "> "+"Embeds Module Commands:\n"+
+             "> "+" • `embed` - (admin) Embed help\n")
+            +(!hasModuleXp?"":
+             "> "+"XP Module Commands:\n"+
+             "> "+" • `rank [uid]` - View your server rank and xp\n")
+            +(!hasModuleThreadAlive?"":
+             "> "+"Thread Alive Module Commands:\n"+
+             "> "+" • `thread alive list     ` - (admin) List threads being kept from being archived\n"+
+             "> "+" • `thread alive add [tid]` - (admin) Add a thread to be kept from being archived\n")
+            +(!hasModuleSaveLoad?"":
+             "> "+"Thread Alive Module Commands:\n"+
+             "> "+" • `save` - (admin) Saves config and database to file\n"+
+             "> "+" • `load` - (admin) Loads config and database from file\n"+
+             "> "+" • `dump` - (admin) Dumps bot contents for troubleshooting; Will also save\n")
+            )
         }
       }
     }
@@ -1065,7 +1095,7 @@ modules.embeds = {
     // if is new message and from admin ->
     // parse contents (or next message), and send that data as an embed to the same channel.
     if (msg.t === "MESSAGE_CREATE" /*&& msg.d.member.roles*/)
-      if ((msg.d.member && msg.d.member.roles.includes("724461190897729596")) || msg.d.author.id === "163718745888522241") {
+      if (isStaff(msg.d.author.id,msg.d.guild_id)) {
         let startString = "<@"+bot.self.id+"> embed";
         let startString2 = "<@!"+bot.self.id+"> embed";
         if (msg.d.content.startsWith(startString) || msg.d.content.startsWith(startString2)) {
@@ -1331,20 +1361,25 @@ modules.saveLoad = {
   name: "saveLoad",
   onDispatch: (bot, msg) => {
 
-    if (msg.t !== "MESSAGE_CREATE")
+    if (msg.t !== "MESSAGE_CREATE" || !isStaff(msg.d.author.id,msg.d.guild_id))
       return;
     let command = commandAndPrefix(msg.d.content);
     if (!command)
       return;
 
     let first = command.shift()
-    if (first == "save") {
+    if (first === "save") {
       save()
       replyToMessage(msg.d,"Save attempted.")
     }
-    if (first == "load") {
+    if (first === "load") {
       load()
       replyToMessage(msg.d,"Load attempted.")
+    }
+    if (first === "dump") {
+      replyToMessage(msg.d,"Attempting to dump bot contents for troubleshooting...\nThis will also save config and database to file.\nThis may cause a crash if bot is unstable.")
+      cleanup()
+      replyToMessage(msg.d,"Bot didn't crash. Will assume dump was successful.")
     }
   }
 }
@@ -1356,7 +1391,14 @@ modules.saveLoad = {
 
 
 
-tempModules = {}
+tempModules = {
+  rss: null,
+  createThread: null,
+  acceptDirectMessage: null,
+  securityIssue: null,
+  genRules: null
+}
+
 tempModules.createThread = {
   name: "temp_createThread",
   onDispatch: (bot,msg) => {
@@ -1378,12 +1420,14 @@ tempModules.createThread = {
     }
   }
 };
+
 tempModules.acceptDirectMessage = {
   name: "temp_acceptDirectMessage",
   onDispatch: (bot,msg) => {
     // check if new message is from dms or not.
   }
 }
+
 tempModules.securityIssue = {
   name: "temp_securityIssue",
   onDispatch: (bot,msg) => {
@@ -1408,6 +1452,7 @@ tempModules.securityIssue = {
     }
   }
 }
+
 tempModules.genRules = {
   name: "genRules",
   onDispatch: (bot,msg) => {
@@ -1448,20 +1493,22 @@ tempModules.genRules = {
 
 // production branch
 if (!beta) {
-  // bot.addModule(modules.incrementalLog)
+  // bot.addModule(modules.nop)
+  bot.addModule(tempModules.securityIssue)
   bot.addModule(modules.userMemory)
   bot.addModule(modules.joinMessages)
   bot.addModule(modules.inviteLogging)
   bot.addModule(modules.disboardReminder)
   bot.addModule(modules.threadLogging)
   bot.addModule(modules.infoHelpUptime)
-  // bot.addModule(modules.embeds)
-  // bot.addModule(modules.threadAlive)
-  // bot.addModule(modules.xp)
+  bot.addModule(modules.embeds)
+  bot.addModule(modules.threadAlive)
+  bot.addModule(modules.xp)
   bot.addModule(modules.saveLoad)
 
+  // bot.addModule(tempModules.rss)
   // bot.addModule(tempModules.createThread)
-  bot.addModule(tempModules.securityIssue)
+  // bot.addModule(tempModules.acceptDirectMessage)
   // bot.addModule(tempModules.genRules)
 }
 
@@ -1469,19 +1516,21 @@ if (!beta) {
 
 // beta branch
 if (beta) {
-  // bot.addModule(modules.incrementalLog)
+  // bot.addModule(modules.nop)
+  bot.addModule(tempModules.securityIssue)
   bot.addModule(modules.userMemory)
   // bot.addModule(modules.joinMessages)
   // bot.addModule(modules.inviteLogging)
   // bot.addModule(modules.disboardReminder)
-  // bot.addModule(modules.threadLogging)
+  bot.addModule(modules.threadLogging) //
   bot.addModule(modules.infoHelpUptime)
-  // bot.addModule(modules.embeds)
+  bot.addModule(modules.embeds)
   bot.addModule(modules.threadAlive)
   bot.addModule(modules.xp)
   bot.addModule(modules.saveLoad)
 
-  bot.addModule(tempModules.createThread)
-  bot.addModule(tempModules.securityIssue)
-  bot.addModule(tempModules.genRules)
+  // bot.addModule(tempModules.rss)
+  // bot.addModule(tempModules.createThread)
+  // bot.addModule(tempModules.acceptDirectMessage)
+  // bot.addModule(tempModules.genRules)
 }
