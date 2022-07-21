@@ -10,6 +10,8 @@ const channelMap = new Map();   // channel_id -> channel_obj
 const threadMap = new Map();    // thread_id -> thread_obj
 const guildNameMap = new Map(); // guild_id -> string
 const rolePositions = new Map();// role_id -> number (used to sort role orders when user leaves)
+const userXpMap = new Map()     // guild_id -> map<member_id,xpobj>
+                                // xpobj := {xp:int,lvl:int,lastxptime:time}
 var sents = []
 beta = false; // sets which set of modules to use (prevents spam when debugging)
 version = "v0.16.1"+(beta?" beta":"")
@@ -1058,6 +1060,138 @@ modules.threadAlive = {
   }
 }
 
+modules.xp = {
+  name: "xp",
+  xp_per_message: [15,25],
+  xp_rate: 1,
+  ignored_channels: new Set([
+    "728676188641558571", // #spamming
+    "713159752296693792", // #counting
+    "744059079994900623", // #one-word-story
+    "713154571664490537", // #memes
+    "730170402109653112", // #advertising
+    "730218384024797266"  // #bot-commands
+  ]),
+  ignored_roles: new Set(["713510512150839347", "778861562965393438"]), // BotWing and Muted
+  level_nofif: new Map([
+      [
+        "713127035156955276", // WOFCS
+        {
+          message: "Awesome job {player}, you just flew to up to **LEVEL {level}**!\n<:heartdragon:730252985594150942> <:boop:738987120022257696> <:confetti:748591549444784238>",
+          announce_channel: "750152027283259513" // #levels
+        }
+      ]
+    ]),
+  onDispatch: (bot,msg) => {
+    if (msg.t !== "MESSAGE_CREATE")
+      return;
+
+    let m = modules.xp;
+
+    console.log("can earn xp?")
+    if (m.canEarnXp(m, msg.d, msg.time))
+      m.addXp(m, msg.d.guild_id, msg.d.author.id, msg.time);
+
+    if (m.isRequestingLevels(m, msg.d))
+      m.replyWithXp(m, msg.d, msg.time);
+
+    // if (getleaderboard())
+    //   replywithleaderboard()
+  },
+  canEarnXp: (m, d, time) => {
+    let canEarn = true;
+
+    if (m.ignored_channels.has(d.channel_id)) {
+      console.log("cannot: forbidden channel")
+      canEarn = false;
+    }
+
+    if (d.member.roles.filter(a=>m.ignored_roles.has(a)).length>0) {
+      console.log("cannot: forbidden role")
+      canEarn = false;
+    }
+
+    // console.log(canEarn)
+    let lastTime = m.fetchXp(d.guild_id,d.author.id).lastxptime
+    if ((time - lastTime) > 60000) {// more than one minute since last xp granted
+      // console.log("exit: "+canEarn)
+      return canEarn;
+    }
+
+    console.log("cannot: too soon")
+    return false;
+  },
+  fetchXp: (gid, uid) => {
+    // Get guild map
+    if (!userXpMap.has(gid))
+      userXpMap.set(gid, new Map());
+    let gmap = userXpMap.get(gid);
+
+    // Get user xpobj
+    if (!gmap.has(uid))
+      gmap.set(uid, {xp:0,lvl:0,lastxptime:0});
+
+    return gmap.get(uid);
+  },
+  addXp: (m, gid, uid, time, amt) => {
+    let defaultxp = m.xp_per_message;
+    if (amt == undefined)
+      amt = m.xp_rate*(defaultxp[0]+Math.floor(Math.random()*(defaultxp[1]-defaultxp[0]+1)));
+
+    let xpobj = m.fetchXp(gid,uid);
+
+    console.log("Adding "+amt+" xp to "+uid+" ("+xpobj.xp+"->"+(xpobj.xp+amt)+") in "+gid+".")
+    xpobj.xp += amt;
+    xpobj.lastxptime = time;
+    userXpMap.get(gid).set(uid,xpobj);
+  },
+  isRequestingLevels: (m, d) => {
+    let command = commandAndPrefix(d.content);
+    return command //=== "rank"
+  },
+  replyWithXp: (m, d, time) => {
+    let user = d.author;
+    let rank = m.getRank(m,d.guild_id,user.id)
+    let xpobj = m.fetchXp(d.guild_id,user.id);
+
+    let xp_message = {embeds:[
+        {
+          color:5797096,
+          author:{name:user.username+"#"+user.discriminator+"'s Rank and XP"},
+          footer:{text:user.id},
+          timestamp: new Date(time).toISOString(),
+          thumbnail: {url: "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".webp?size=320"},
+          fields: [
+            {name:"Rank",value:rank+" place"},
+            {name:"Level",value:xpobj.lvl},
+            {name:"XP",value:xpobj.xp}
+          ]
+        }
+      ]};
+    replyToMessage(d, xp_message);
+  },
+  getRank: (m,gid, uid) => {
+    // For each user in guild -> count how many have xp above
+    let xpobj = m.fetchXp(gid,uid);
+    let gxp = userXpMap.get(gid).entries();
+    let usersAbove = [...gxp].filter(a=>a[1].xp>xpobj.xp);
+    let rank = String(usersAbove.length+1);
+
+    let lastNumber = rank[rank.length-1];
+    let suffix = lastNumber=='1'?"st" : lastNumber=='2'?"nd":lastNumber=='3'?"rd":"th";
+    if (rank == "11" || rank == "12" || rank == "13")
+      suffix = "th";
+    return rank + suffix;
+  }
+}
+
+
+
+
+
+
+
+
 tempModules = {}
 tempModules.createThread = {
   name: "temp_createThread",
@@ -1155,6 +1289,7 @@ if (!beta) {
   bot.addModule(modules.threadLogging)
   bot.addModule(modules.infoHelpUptime)
   bot.addModule(modules.embeds)
+  // bot.addModule(modules.xp)
 
   // bot.addModule(tempModules.createThread)
   bot.addModule(tempModules.securityIssue)
@@ -1173,6 +1308,7 @@ if (beta) {
   // bot.addModule(modules.threadLogging)
   bot.addModule(modules.infoHelpUptime)
   // bot.addModule(modules.embeds)
+  bot.addModule(modules.xp)
 
   bot.addModule(tempModules.createThread)
   bot.addModule(tempModules.securityIssue)
