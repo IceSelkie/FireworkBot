@@ -11,7 +11,7 @@ const threadMap = new Map();    // thread_id -> thread_obj
 const guildNameMap = new Map(); // guild_id -> string
 const rolePositions = new Map();// role_id -> number (used to sort role orders when user leaves)
 const userXpMap = new Map()     // guild_id -> map<member_id,xpobj>
-                                // xpobj := {xp:int,lvl:int,lastxptime:time}
+                                // xpobj := {xp:int,lvl:int,lastxptime:time,message_count:int}
 var sents = []
 beta = false; // sets which set of modules to use (prevents spam when debugging)
 version = "v0.16.1"+(beta?" beta":"")
@@ -288,14 +288,14 @@ class Bot {
     if (thiss.print) console.log(messagestr);
 
     if (message.s===null || message.t==='RESUMED') {
-      console.log("Recieved message (none/heartbeat-ack)");
+      console.log("Received message (none/heartbeat-ack)");
       console.log(message)
     }
     if (message.s!=null) {
       while (thiss.contacts.length<message.s-1)
         thiss.contacts.push(null);
       thiss.contacts[message.s-1] = message;
-      // console.log("Recieved message #"+message.s + hasInterest(messagestr));
+      // console.log("Received message #"+message.s + hasInterest(messagestr));
       thiss.lastSequence = message.s;
     }
 
@@ -1052,7 +1052,7 @@ modules.inviteLogging = {
             a=>{
               if (map.has(a.code)) console.log("pre: "+map.get(a.code).uses);
               if (map.has(a.code) && a.uses!=map.get(a.code).uses)
-                candidates.push({code:a.code,uses:a.uses,max_uses:a.max_uses,max_age:a.max_age,time:Date.parse(a.created_at),inviter_id:a.inviter.id,channel_id:a.channel_id});
+                candidates.push({code:a.code,uses:a.uses,max_uses:a.max_uses,max_age:a.max_age,time:Date.parse(a.created_at),inviter_id:a.inviter.id,channel_id:a.channel.id});
             });
           console.log("Candidate Invite Links:");
           console.log(candidates);
@@ -1479,6 +1479,7 @@ modules.xp = {
 
     console.log("Adding "+amt+" xp to "+uid+" ("+xpobj.xp+"->"+(xpobj.xp+amt)+") in "+gid+".")
     xpobj.xp += amt;
+    xpobj.message_count += 1;
     xpobj.lastxptime = time;
     userXpMap.get(gid).set(uid,xpobj);
   },
@@ -1551,7 +1552,7 @@ modules.saveLoad = {
     }
     if (first === "dump") {
       replyToMessage(msg.d,"Attempting to dump bot contents for troubleshooting...\nThis will also save config and database to file.\nThis may cause a crash if bot is unstable.")
-      cleanup()
+      bot.cleanup()
       replyToMessage(msg.d,"Bot didn't crash. Will assume dump was successful.")
     }
   }
