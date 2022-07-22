@@ -422,57 +422,200 @@ bot = new Bot();
 // const heartbeatUpdateInterval = 500;
 
 
-function discordRequest(path, data=null, method="GET", useToken=true) {
+var multipartboundary = "boundary"
+function discordRequest(path, data=null, method=null, attachments=null, isText=true, useToken=true) {
+  if (path == undefined) {
+    return 'function discordRequest(path, data=null, method=null="GET", attachments=null, isText=true, useToken=true)\n'+
+    'path="channels/####" or "https://discord.com/api/v9/channels/####"\n'+
+    'data={json:"payload",or:"object to cast to json"}\n'+
+    'method="null/GET/POST/PUT/DELETE/etc"\n'+
+    'attachments="../firework_pfp.png"\n'+
+    '    or {filename?:"unknown.txt",mime?:"text/plain",path:"/path/to/file"}\n'+
+    '    or {filename?:"pfp.png",mime?:"image/png",data:"not an image"}\n'+
+    '    or [{},{},"",{}] of above\n'+
+    'isText=true -> utf8 text -> returned.res will be string\n'+
+    '    otherwise, isText=false -> returns Buffer of raw bytes\n'+
+    'useToken=true -> uses authorization header or not in request. Discord API needs. Everywhere else will leak bot token.\n'+
+    '\n'+
+    'var multipartboundary = "boundary" for "multipart/form-data" boundaries.\n'+
+    '    If "--boundary" will occur in payload, change this var.';
+  }
   // console.log("Discord Request called with path of:")
   // console.log(path)
   // console.log("Discord Request called with data of:")
   // console.log(data)
   return new Promise((resolve,reject)=>{
+    let hasPayload = data!=null;
+    let multipart = attachments!=null;
+
+    if (useToken === null)
+      useToken = true;
+    if (isText === null)
+      isText = true;
+    if (method == null && (hasPayload||multipart))
+      method = "POST";
     if (method == null)
       method = "GET";
-    if (method==="GET"&&data!==null)
-      method = "POST";
+    if (attachments && !(attachments instanceof Array))
+      attachments = [attachments]
+    if (attachments && attachments.length>=10)
+      throw 'At most 10 attachments per message.'
+    if (path.startsWith('https://')){
+      host = path.substring(8) // "https://discord.com/api..." -> "discord.com/api..."
+      host = host.substring(0,host.indexOf('/')) // "discord.com/api..." -> "discord.com"
+      if (!host.includes("discord") || !host.includes("api"))
+        useToken = false;
+    } else
+      host = "discord.com"
+
     let headers = {"content-type":"application/json"};
     if (useToken)
       headers.authorization=identify.d.token;
-    let opts = {"hostname": "discord.com","port": 443,"headers":headers,
-      "path": (path.includes("https://")?path:"/api/v9/"+path),
+    if (multipart)
+      headers["content-type"] = 'multipart/form-data;boundary="'+multipartboundary+'"';
+
+    let opts = {"hostname": host,"port": 443,"headers":headers,
+      "path": (path.startsWith("https://")?path:"/api/v9/"+path),
       "method": method
     }
     if (typeof data !== "string")
       data = JSON.stringify(data);
+
+    let multipartdata = []
+    if (multipart) {
+      multipart = "";
+      if (data) {
+        multipart += '--'+multipartboundary+'\n'
+        multipart += 'Content-Disposition: form-data; name="payload_json"\n';
+        multipart += 'Content-Type: application/json\n';
+        multipart += '\n';
+        multipartdata.push(multipart);
+        multipartdata.push(data);
+        multipart  = '\n';
+        data = null;
+      }
+      attachments.forEach((att,i)=> {
+        // att can be file name -> get file and upload it
+        //   "/path/to/file"
+        // or raw data -> upload the data
+        //   {filename:"file.txt",mime:"text/plain",data:"rawdata"||file:"/path/to/file"}
+        // URL to reupload not accepted, since that would require this to be async.
+        if (typeof att === "string") {
+            att = {file:att}
+        }
+        if ((!!att.data) + (!!att.file) != 1)
+          throw 'Attachment expected one of: rawdata (attachment.data) or filepath (attachment.file). Received neither or both.'
+        if (att.file && !fs.existsSync(att.file))
+          throw 'Attachment expected to find a file, but instead '+JSON.stringify(att.file)+' didnt exist.';
+        let buffer;
+        if (att.file) {
+          if (!att.filename)
+            att.filename = att.file.substring(att.file.lastIndexOf('/')+1);
+          if (!att.mime)
+            att.mime = mimelookup(att.file.substring(att.file.lastIndexOf('.')+1));
+          buffer = fs.readFileSync(att.file);
+        }
+        if (att.data) {
+          if (!att.filename)
+            att.filename = "unknown.txt"
+          if (!att.mime)
+            att.mime = "text/plain"
+          buffer = att.data
+          if (buffer.data && buffer.type === "Buffer")
+            buffer = Buffer.from(buffer)
+        }
+        // if (att.url) {
+        //   if (!att.filename) {
+        //     att.filename = att.url;
+        //     if (att.filename.includes('?'))
+        //       att.filename = att.filename.substring(0,att.filename.indexOf('?'));
+        //     if (att.filename.includes('#'))
+        //       att.filename = att.filename.substring(0,att.filename.indexOf('#'));
+        //     att.filename = att.filename.substring(att.filename.lastIndexOf('/')+1);
+        //   }
+        //   if (!att.mime)
+        //     att.mime = mimelookup(att.file.substring(att.file.lastIndexOf('.')+1));
+        //   buffer = await discordRequest(att.url).res
+        // }
+
+        multipart += '--'+multipartboundary+'\n'
+        multipart += 'Content-Disposition: form-data; name="files['+i+']"; filename="'+att.filename+'"\n'
+        multipart += 'Content-Type: '+att.mime+'\n';
+        multipart += '\n';
+        multipartdata.push(multipart);
+        multipartdata.push(buffer);
+        multipart  = '\n';
+      });
+
+      multipart += '--'+multipartboundary+'--\n';
+
+      multipartdata.push(multipart);
+      multipart = true;
+    }
     
     saveObject = {
       method:opts.method,
       path:opts.path,
-      data:data,
       timeSend:Date.now()
     };
+    if (data) saveObject.data = data;
+    if (multipart) saveObject.multipart = true;
     sents.push(saveObject);
+    console.log(JSON.stringify(saveObject));
+    // fs.appendFileSync("contacts"+(beta?"beta/":"/")+"latest.log",JSON.stringify(saveObject)+"\n")
 
     let req = https.request(opts,
       res=>{
-        let data = '';
+        let data;
+        if (isText)
+          data = '';
+        else
+          data = []
+
+        if (isText)
         res.setEncoding('utf8');
         // console.log('Headers:\n'+JSON.stringify(res.headers,null,2));
-        res.on('data',part=>data+=part);
+        res.on('data',part=>{
+          if (isText)
+            data+=part;
+          else
+            data.push(part)
+        });
         // TODO: remember ratelimit data
         res.on('end',()=>{
+          if (!isText)
+            data = Buffer.concat(data)
           saveObject.timeDone = Date.now();
           saveObject.ret = res.statusCode;
           saveObject.res = data;
           saveObject.ratelimit_data = JSON.stringify(res.headers,null,2);
+          fs.appendFileSync("contacts"+(beta?"beta/":"/")+"latest.log",JSON.stringify(saveObject)+"\n")
+          // Notify if something goes wrong
+          if (res.statusCode>=400 && !path.includes("883172908418084954")) { // prevent spam on retrying send message failures.
+            let msg = data;
+            if (!isText) msg = ""+msg
+            sendMessage("883172908418084954", {"embeds":[{
+                "author":{"name":method+" Failed"},
+                "title":"http error "+res.statusCode,
+                "description":msg.substring(0,4001),
+                "footer":{"text":path},
+                "timestamp":new Date().toISOString()}]});
+          }
           resolve(saveObject);
         });
       }).on('error',err=>{
         saveObject.timeDone = Date.now();
         saveObject.err = err;
+        fs.appendFileSync("contacts"+(beta?"beta/":"/")+"latest.log",JSON.stringify(saveObject)+"\n")
+        console.error(err);
+        if (!path.includes("883172908418084954")) // prevent spam on retrying send message failures.
+          sendMessage("883172908418084954",err.toString().substring(0,4000))
         reject(err);
       });
     if (data !== null) {
-      if (typeof data !== 'string')
-        data = JSON.stringify(data,null);
       req.write(data);
+    } else {
+      multipartdata.forEach(data => req.write(data))
     }
     req.end();
   });
@@ -506,6 +649,18 @@ replyToMessage = async function(original, message_object) {
   return sendMessage(original.channel_id,message_object);
 }
 
+var mimetypes = new Map(JSON.parse(fs.readFileSync('mimetypes.json')))
+function mimelookup(ext) {
+  if (mimetypes.has(ext))
+    return mimetypes.get(ext);
+  if (mimetypes.has("."+ext))
+    return mimetypes.get("."+ext);
+
+  // Arbitrary Binary. The default.
+  return 'application/octet-stream'
+  // Text only. No binary.
+  return 'text/plain'
+}
 
 var parseCommandRegex = null
 function parseCommandToArgs(input) {
@@ -532,8 +687,8 @@ function parseCommandToArgs(input) {
 //        weirdThingIdk+ // ═══════════════════╡ ┃ ┃
 //        '|'+ // or                             ┃ ┃
           '(?:'+ // NCG 3 Open ━━━━━━━━━━━━━━━━┓ ┃ ┃
-            '\\\\\\\\'+ // escaped backslash   ┃ ┃ ┃
-            '|'+ // or                         ┃ ┃ ┃
+            '\\\\\\\\'+ // escaped backslash   ┃ ┃ ┃ // wait shouldnt escaped any
+            '|'+ // or                         ┃ ┃ ┃ // include escaped backslash?
             '\\\\[\\s\\S]'+ // escaped any     ┃ ┃ ┃
             '|'+ // or                         ┃ ┃ ┃
             '[^\\s\\\\]'+ // anything else     ┃ ┃ ┃
@@ -1425,7 +1580,7 @@ tempModules.rss = {
     if (Date.now() > modules.rss.lastCheckTime+300000) {
       console.log("Checking rss...")
       modules.rss.lastCheckTime = Date.now();
-      discordRequest("https://api.rss2json.com/v1/api.json?rss_url=https://wingsoffire.fandom.com/wiki/Special:NewPages?feed=rss",null,null,false).
+      discordRequest("https://api.rss2json.com/v1/api.json?rss_url=https://wingsoffire.fandom.com/wiki/Special:NewPages?feed=rss",null,null,null,null,false).
         then(a=>modules.rss.response(a))
     }
   },
