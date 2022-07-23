@@ -13,8 +13,8 @@ const rolePositions = new Map();// role_id -> number (used to sort role orders w
 const userXpMap = new Map()     // guild_id -> map<member_id,xpobj>
                                 // xpobj := {xp:int,lvl:int,lastxptime:time,message_count:int}
 var sents = []
-beta = false; // sets which set of modules to use (prevents spam when debugging)
-version = "v0.16.1"+(beta?" beta":"")
+var beta = true; // sets which set of modules to use (prevents spam when debugging)
+var version = "v0.17.1"+(beta?" beta":"")
 
 
 // privilaged intents codes:
@@ -844,7 +844,8 @@ modules = {
   embeds: null,
   threadAlive: null,
   xp: null,
-  saveLoad: null
+  saveLoad: null,
+  boosters: null
 }
 
 modules.nop = {
@@ -1558,6 +1559,33 @@ modules.saveLoad = {
   }
 }
 
+modules.boosters = {
+  name:"boosters",
+  onDispatch: (bot,msg) => {
+    if (msg.t !== "MESSAGE_CREATE" || !msg.d.guild_id)
+      return;
+    let command = commandAndPrefix(msg.d.content);
+    if (!command)
+      return;
+    let first = command.shift().toLowerCase()
+    if (first !== "boosters" && first !== "boosts")
+      return;
+
+    let gid = msg.d.guild_id;
+    let boosters = [...memberMap.get(gid).entries()].map(a=>a[1]).filter(a=>a.premium_since);
+    let ct = boosters.length;
+    let str = "\\* "+boosters
+          .map((a) => {
+            let time = timeDuration(new Date(a.premium_since),msg.time)
+                .split(/ (?:and )?/)
+                .splice(0,4);
+            if (time.length==4) time.splice(2,0,"and");
+            return (a.nick?a.nick:a.user.username)+"\t\t—\t"+time.join(" ");
+          }).join("\n\\* ")
+    replyToMessage(msg.d,"**__"+ct+" Booster"+(ct==1?"":"s")+"__**"+(ct==0?"":'\n\n'+str))
+  }
+}
+
 
 
 
@@ -1710,6 +1738,7 @@ if (!beta) {
   bot.addModule(modules.threadAlive)
   bot.addModule(modules.xp)
   bot.addModule(modules.saveLoad)
+  bot.addModule(modules.boosters)
 
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
@@ -1730,9 +1759,10 @@ if (beta) {
   // bot.addModule(modules.threadLogging) //
   bot.addModule(modules.infoHelpUptime)
   bot.addModule(modules.embeds)
-  bot.addModule(modules.threadAlive)
-  bot.addModule(modules.xp)
+  // bot.addModule(modules.threadAlive)
+  // bot.addModule(modules.xp)
   bot.addModule(modules.saveLoad)
+  bot.addModule(modules.boosters)
 
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
