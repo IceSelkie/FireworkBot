@@ -77,13 +77,13 @@ const dispatchTypes = [  // GUILDS (1 << 0)
 ]
 
 
-oldlog = console.log;
+const oldlog = console.log;
 console.log=(a,b,c,d)=>{
   if (d!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b,c,d);
   else if (c!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b,c);
   else if (b!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b);
   else oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a);}
-olderr = console.error;
+const olderr = console.error;
 console.error=(a,b,c,d)=>{
   if (d!==undefined) olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a,b,c,d);
   else if (d!==undefined) olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a,b,c);
@@ -717,7 +717,9 @@ function commandAndPrefix(content) {
 function isStaff(uid, gid) {
   if (uid === "163718745888522241")
     return true;
-  member = memberMap.get(gid).get(uid);
+  if (!gid) // dm
+    return false;
+  let member = memberMap.get(gid).get(uid);
   return (member && (member.roles.includes(r_mod) || member.roles.includes(r_modling)))
 }
 
@@ -785,6 +787,7 @@ function snowflakeToTime(snowflake) {
 
 function userLookup(uid,gid) {
   try {
+    // TODO: am using userMap before user is put into it.
     let username = userMap.get(uid).username + "#" + userMap.get(uid).discriminator
     let nick = undefined
     if (memberMap.has(gid)) {
