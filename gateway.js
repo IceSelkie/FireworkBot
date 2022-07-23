@@ -846,7 +846,8 @@ modules = {
   xp: null,
   saveLoad: null,
   whois: null,
-  boosters: null
+  boosters: null,
+  listModules: null
 }
 
 modules.nop = {
@@ -1718,6 +1719,20 @@ modules.boosters = {
   }
 }
 
+modules.listModules = {
+  name: "listModules",
+  onDispatch: (bot,msg) => {
+    if (msg.t !== "MESSAGE_CREATE" || !msg.d.guild_id)
+      return;
+    let command = commandAndPrefix(msg.d.content);
+    if (!command)
+      return;
+    let first = command.shift().toLowerCase()
+    if (first !== "listmodules")
+      return;
+    replyToMessage(msg.d,bot.modules.map(a=>a&&a.name?a.name:"{unknown or removed module}").join("\n"))
+  }
+}
 
 
 
@@ -1872,6 +1887,7 @@ if (!beta) {
   bot.addModule(modules.saveLoad)
   bot.addModule(modules.whois)
   bot.addModule(modules.boosters)
+  bot.addModule(modules.listModules)
 
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
@@ -1897,6 +1913,7 @@ if (beta) {
   bot.addModule(modules.saveLoad)
   bot.addModule(modules.whois)
   bot.addModule(modules.boosters)
+  bot.addModule(modules.listModules)
 
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
