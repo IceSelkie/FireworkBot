@@ -845,6 +845,7 @@ modules = {
   threadAlive: null,
   xp: null,
   saveLoad: null,
+  whois: null,
   boosters: null
 }
 
@@ -930,7 +931,6 @@ modules.userMemory = {
 modules.joinMessages = {
   name: "joinMessages",
 
-  postChannel: ["870868727820849183","883172908418084954"],
   guildJoinChannels: new Map([["713127035156955276","713444513833680909"], //wofcs
                               ]),
   messagesJoin: ['Please welcome {USER} to Pyrrhia!',
@@ -1559,6 +1559,138 @@ modules.saveLoad = {
   }
 }
 
+modules.whois = {
+  name: "whois",
+  cooldownTime: 10000,
+  commandCooldown: new Map(),
+  onDispatch: (bot, msg) => {
+    if (msg.t !== "MESSAGE_CREATE")
+      return;
+    let command = commandAndPrefix(msg.d.content);
+    if (!command)
+      return;
+
+    // console.log("message seen")
+
+    let first = command.shift().toLowerCase()
+    if (first !== "whoami" && first !== "whois")
+      return;
+
+    // console.log("whoami seen")
+
+    let uid = command.shift()
+    if (uid === undefined)
+      uid = msg.d.author.id;
+
+    let user;
+    if (userMap.has(uid)) {
+      // If on mutual server, this will be up to date.
+      user = userMap.get(uid);
+      modules.whois.part2(msg,user.id,user);
+    } else {
+      // ensure is snowflake
+      try {
+        if (snowflakeToTime(uid)<snowflakeToTime(0) || snowflakeToTime(uid) > msg.time)
+          throw 'goto catch'
+      } catch (e) {
+        replyToMessage(msg.d,"That's not a valid user id!");
+        return;
+      }
+      discordRequest('users/'+uid).then(a=>{
+        if (a.ret === 200) {
+          user = JSON.parse(a.res);
+          userMap.set(user.id,user);
+          modules.whois.part2(msg,user.id,user);
+        } else if (a.ret === 404) {
+          replyToMessage(msg.d, "No users exists with that id.");
+        } else {
+          replyToMessage(msg.d,"Something went wrong.");
+        }
+      });
+    }
+  },
+  part2: (msg,uid,user) => {
+    // Might be wrong if user has left guild since bot started.
+    let sharesGuild = (!!msg.d.guild_id) && memberMap.get(msg.d.guild_id).has(uid);
+
+    avatar = "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".png?size=4096"
+    let embed = {
+        "author": {"name": user.username,
+          "icon_url": avatar
+        },
+        "title": user.username+"#"+user.discriminator,
+        "url": avatar,
+        "color": null,
+        "fields": [
+          {
+            "name": "Account Age",
+            "inline": true,
+            "value": timeDuration(snowflakeToTime(user.id),msg.time)
+          }
+        ],
+        "footer": { "text": user.id },
+        "timestamp": new Date(snowflakeToTime(user.id)).toISOString(),
+        "thumbnail": { "url": avatar }
+      }
+
+      if (user.public_flags)
+        embed.fields.push({
+            "name": "Badges",
+            "inline": true,
+            "value": modules.whois.flagToBadgeEmotes(user.public_flags)
+          })
+
+    replyToMessage(msg.d,{embeds:[embed]})
+    // if shares guild: roles + server online time
+  },
+  flagToBadgeEmotes: (flags,nitro,boost,owner,slash) => {
+    badges = 
+      [
+        "<:badge_discord_staff:1000072146657226872>",
+        "<:badge_partnered_server_owner:1000072164327837826>",
+        "<:badge_hypesquad_events:1000072160188059698>",
+        "<:badge_bug_hunter_level_1:1000072139770187878>", null, null,
+        "<:badge_house_bravery:1000072155448483880>",
+        "<:badge_house_brilliance:1000072158007005294>",
+        "<:badge_house_balance:1000072153103868045>",
+        "<:badge_early_supporter:1000072151191261215>",
+        "<:badge_team_pseudo_user:1000104098043011112>", /* ? */ null, null, null,
+        "<:badge_bug_hunter_level_2:1000072142337081364>", null,
+        "<:badge_verified_bot:1000104125217906778>", // ?
+        "<:badge_early_bot_dev:1000072148829864007>",
+        "<:badge_community_moderator:1000072144119677018>",
+        "<:badge_bot_http_interactions:1000104149158993961>" // ?
+      ];
+
+    let ret = 
+        flags         // Flags is a binary encoded number
+        .toString(2)  // Convert to base two
+        .split(/(.)/).filter((a,i)=>i%2) // Split digits
+        .reverse()    // bigendian -> littleendian
+        .map(a=>a=='1') // '1' and '0' to boolean values
+        .map((a,i)=>a?badges[i]?badges[i]:"?":"") // Extract badges, if exist
+        .join(""); // join badges together
+    return ret;
+
+    // boostBadges = 
+    //   {
+    //      0: "",
+    //      1: "<:badge_boost_1_month:1000081834203414698>",
+    //      2: "<:badge_boost_2_months:1000081836631916704>",
+    //      3: "<:badge_boost_3_months:1000081839492431912>",
+    //      6: "<:badge_boost_6_months:1000081841912565802>",
+    //      9: "<:badge_boost_9_months:1000081844324286524>",
+    //     12:"<:badge_boost_12_months:1000081846786343012>",
+    //     18:"<:badge_boost_18_months:1000081849340666036>",
+    //     24:"<:badge_boost_24_months:1000081898925731901>"
+    //   };
+    // if (owner) ret = "<:badge_server_owner:1000072165976199178>" + ret
+    // if (slash) ret = "<:badge_supports_commands:1000072168576647358>" + ret
+    // if (nitro) ret += "<:badge_nitro:1000072162557821030>"
+    // if (boost) ret += boostBadges[boost]
+  }
+}
+
 modules.boosters = {
   name:"boosters",
   onDispatch: (bot,msg) => {
@@ -1738,6 +1870,7 @@ if (!beta) {
   bot.addModule(modules.threadAlive)
   bot.addModule(modules.xp)
   bot.addModule(modules.saveLoad)
+  bot.addModule(modules.whois)
   bot.addModule(modules.boosters)
 
   // bot.addModule(tempModules.rss) //
@@ -1762,6 +1895,7 @@ if (beta) {
   // bot.addModule(modules.threadAlive)
   // bot.addModule(modules.xp)
   bot.addModule(modules.saveLoad)
+  bot.addModule(modules.whois)
   bot.addModule(modules.boosters)
 
   // bot.addModule(tempModules.rss) //
