@@ -1266,7 +1266,9 @@ modules.infoHelpUptime = {
              "> "+" • `embed` - (admin) Embed help\n")
             +(!hasModuleXp?"":
              "> "+"XP Module Commands:\n"+
-             "> "+" • `rank [uid]` - View your server rank and xp\n")
+             "> "+" • `rank [uid] ` - View your server rank and xp\n"+
+             "> "+" • `leaderboard` - View the levels of the top 10 users in the server\n"+
+             "> "+" • `           ` - More coming soon!\n")
             +(!hasModuleThreadAlive?"":
              "> "+"Thread Alive Module Commands:\n"+
              "> "+" • `thread alive list     ` - (admin) List threads being kept from being archived\n"+
@@ -1452,11 +1454,19 @@ modules.xp = {
     if (target)
       m.replyWithXp(m, target, msg.d, msg.time);
 
+    if (m.isRequestingLeaderboard(m, msg.d))
+      m.replyWithLb(m, msg.d.guild_id, msg.d, msg.time)
+
     // if (getleaderboard())
     //   replywithleaderboard()
   },
   canEarnXp: (m, d, time) => {
     let canEarn = true;
+
+    if (d.author.bot) {
+      console.log("cannot: is bot")
+      canEarn = false;
+    }
 
     if (m.ignored_channels.has(d.channel_id)) {
       console.log("cannot: forbidden channel")
@@ -1513,6 +1523,10 @@ modules.xp = {
       return false;
     return command.length>0?command[0]:d.author.id;
   },
+  isRequestingLeaderboard: (m, d) => {
+    let command = commandAndPrefix(d.content);
+    return (command && command.shift().toLowerCase() === "leaderboard")
+  },
   replyWithXp: (m, target, d, time) => {
     let user = d.author;
     let gid = d.guild_id;
@@ -1537,11 +1551,35 @@ modules.xp = {
       ]};
     replyToMessage(d, xp_message);
   },
-  getRank: (m, gid, uid) => {
-    // For each user in guild -> count how many have xp above
+  replyWithLb: (m, gid, d, time) => {
+    let lb = m.getLeaderboard(gid);
+    if (lb.filter(a=>a[0]===d.author.id).length===0)
+      lb.push([d.author.id,m.fetchXp(gid,d.author.id)])
+
+    let content = 
+        lb.map(
+          a=>
+            m.getRank(m,d.guild_id,a[0],a[0]!==d.author.id?lb:null)
+            +"\t—\tLevel "+a[1].lvl+" ("+a[1].xp+"xp)"
+            +"\t— <@"+a[0]+">")
+        .join("\n")
+
+    let lb_message = {embeds:[
+        {
+          color:5797096,
+          title: "Server XP Leaderboard",
+          description: content,
+          footer:{text:d.author.id},
+          timestamp: new Date(time).toISOString()
+        }
+      ]};
+    replyToMessage(d, lb_message);
+  },
+  /** For user in guild -> count how many have xp above **/
+  getRank: (m, gid, uid, gxps=null) => {
     let xpobj = m.fetchXp(gid,uid);
-    let gxp = userXpMap.get(gid).entries();
-    let usersAbove = [...gxp].filter(a=>a[1].xp>xpobj.xp);
+    if (!gxps) gxps = [...userXpMap.get(gid).entries()].filter(a=>memberMap.get(gid).has(a[0]));
+    let usersAbove = gxps.filter(a=>a[1].xp>xpobj.xp);
     let rank = String(usersAbove.length+1);
 
     let lastNumber = rank[rank.length-1];
@@ -1549,6 +1587,22 @@ modules.xp = {
     if (rank == "11" || rank == "12" || rank == "13")
       suffix = "th";
     return rank + suffix;
+  },
+  /** For a guild -> Find the users with the top 10 xp **/
+  getLeaderboard: (gid, ct=10) => {
+    let gxp = [...userXpMap.get(gid).entries()];
+
+    // Only allow members currently in server
+    let members = memberMap.get(gid)
+    gxp = gxp.filter(a=>members.has(a[0]))
+
+    // Sort all users by xp (and when earned to break ties: first to the xp ranks higher.)
+    // Apparently this takes 0-1 ms for 1164 entries...
+    let sorted = gxp.sort((a,b)=>a[1].xp!==b[1].xp?b[1].xp-a[1].xp:a[1].lastxptime-b[1].lastxptime);
+
+    if (sorted.length<=ct)
+      return sorted;
+    return sorted.filter(a=>a[1].xp>=sorted[ct-1][1].xp);
   }
 }
 
