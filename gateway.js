@@ -142,7 +142,9 @@ class Bot {
     this.interval = null;
     this.sessionID = null;
     this.self = null; // the user object for this bot.
-    this.modules = [];
+    this.modules = []; // Normal modules to run
+    this.modulesPre = []; // Modules to run before the others; updates the states of things.
+    this.modulesPost = []; // Modules to run after the others; clears the states of things.
     this.plannedMessages = []; // heap of messages to be sent; tags of when to send and if late messages okay.
     this.timeStart = Date.now();
     this.timeLastReconnect = null;
@@ -345,14 +347,19 @@ class Bot {
 
       console.log("Dispatch received: "+message.t+" #"+thiss.types.get(message.t) + " id="+message.s + thiss.hasInterest(messagestr))
 
-      thiss.modules.forEach(a => {
-        try {
-          if (a.onDispatch) a.onDispatch(thiss, message);
-        } catch (err) {
-          console.error(err);
-          sendMessage("883172908418084954",err.toString())
-        }
-      });
+
+      thiss.modulesPre.forEach(a => thiss.runModule(thiss,a,message));
+      thiss.modules.forEach(a => thiss.runModule(thiss,a,message));
+      thiss.modulesPost.forEach(a => thiss.runModule(thiss,a,message));
+    }
+  }
+
+  runModule = function(thiss, currentModule, message) {
+    try {
+      if (currentModule.onDispatch) currentModule.onDispatch(thiss, message);
+    } catch (err) {
+      console.error(err);
+      sendMessage("883172908418084954",err.toString())
     }
   }
 
