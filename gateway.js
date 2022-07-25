@@ -1158,7 +1158,7 @@ modules.disboardReminder = {
           sendMessage("870868315793391686",{embeds:[{description:"A [bump]("+bumpLink+") was just done in "+guildName+" by "+memberName}]});
           setTimeout(()=>sendMessage(msg.d.channel_id,{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [up here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
           setTimeout(()=>sendMessage("870868315793391686",{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
-          setTimeout(()=>sendMessage(msg.d.channel_id,"A new bump can now be done with `/bump`."),2*60*60*1000);
+          setTimeout(()=>sendMessage(msg.d.channel_id,"A new bump can now be done with </bump:947088344167366698>."),2*60*60*1000);
           setTimeout(()=>sendMessage("870868315793391686","A new bump can now be done."),2*60*60*1000);
         }
       }
