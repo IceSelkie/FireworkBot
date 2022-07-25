@@ -838,7 +838,8 @@ function findMessage(mid) {
 modules = {
   nop: null,
   securityIssue: null,
-  userMemory: null,
+  userMemoryPre: null,
+  userMemoryPost: null,
   joinMessages: null,
   inviteLogging: null,
   disboardReminder: null,
@@ -881,8 +882,8 @@ modules.securityIssue = {
     }
   }
 }
-modules.userMemory = {
-  name: "userMemory",
+modules.userMemoryPre = {
+  name: "userMemoryPre",
   onDispatch: (bot,msg)=>{
     if (msg.t === "GUILD_CREATE") {
       guildNameMap.set(msg.d.id,msg.d.name)
@@ -893,7 +894,7 @@ modules.userMemory = {
       })
       if (!memberMap.has(msg.d.id))
         memberMap.set(msg.d.id,new Map());
-      msg.d.members.forEach(member=>modules.userMemory.mergeMember(msg.d.id,member.user.id,member));
+      msg.d.members.forEach(member=>modules.userMemoryPre.mergeMember(msg.d.id,member.user.id,member));
       msg.d.roles.forEach(role=>rolePositions.set(role.id,role.position));
       msg.d.channels.forEach(channel=>channelMap.set(channel.id,channel));
     }
@@ -907,7 +908,7 @@ modules.userMemory = {
     if (msg.t === "GUILD_MEMBER_ADD" || msg.t === "GUILD_MEMBER_UPDATE") {
       let member = JSON.parse(JSON.stringify(msg.d));
       let guild_id = member.guild_id;
-      modules.userMemory.mergeMember(guild_id,member.user.id,member);
+      modules.userMemoryPre.mergeMember(guild_id,member.user.id,member);
     }
     if (msg.t === "GUILD_ROLE_CREATE" || msg.t === "GUILD_ROLE_UPDATE")
       rolePositions.set(msg.d.role.id,msg.d.role.position);
@@ -928,6 +929,14 @@ modules.userMemory = {
       if (old.user && !member.user)
         member.user = old.user;
       guildMap.set(user_id,member);
+    }
+  }
+}
+modules.userMemoryPost = {
+  name: "userMemoryPost",
+  onDispatch: (bot,msg) => {
+    if (msg.t === "GUILD_MEMBER_REMOVE") {
+      memberMap.get(msg.d.guild_id).delete(msg.d.user.id)
     }
   }
 }
@@ -1878,7 +1887,6 @@ tempModules.genRules = {
 if (!beta) {
   // bot.addModule(modules.nop) //
   bot.addModule(modules.securityIssue)
-  bot.addModule(modules.userMemory)
   bot.addModule(modules.joinMessages)
   bot.addModule(modules.inviteLogging)
   bot.addModule(modules.disboardReminder)
@@ -1896,6 +1904,9 @@ if (!beta) {
   // bot.addModule(tempModules.createThread) //
   // bot.addModule(tempModules.acceptDirectMessage) //
   // bot.addModule(tempModules.genRules) //
+
+  bot.modulesPre.push(modules.userMemoryPre);
+  bot.modulesPost.push(modules.userMemoryPost);
 }
 
 
@@ -1904,7 +1915,6 @@ if (!beta) {
 if (beta) {
   // bot.addModule(modules.nop) //
   bot.addModule(modules.securityIssue)
-  bot.addModule(modules.userMemory)
   // bot.addModule(modules.joinMessages) //
   // bot.addModule(modules.inviteLogging) //
   // bot.addModule(modules.disboardReminder) //
@@ -1922,4 +1932,7 @@ if (beta) {
   // bot.addModule(tempModules.createThread) //
   // bot.addModule(tempModules.acceptDirectMessage) //
   // bot.addModule(tempModules.genRules)
+
+  bot.modulesPre.push(modules.userMemoryPre);
+  bot.modulesPost.push(modules.userMemoryPost);
 }
