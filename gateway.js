@@ -1509,9 +1509,15 @@ modules.xp = {
 
     // Get user xpobj
     if (!gmap.has(uid))
-      gmap.set(uid, {xp:0,lvl:0,lastxptime:0});
+      return {xp:0,lvl:0,message_count:0,lastxptime:0};
 
-    return gmap.get(uid);
+    xpobj = gmap.get(uid);
+
+    // message_count was added later and may not exist.
+    if (!xpobj.message_count)
+      xpobj.message_count=0;
+
+    return xpobj;
   },
   checkLevelup: (xpobj,gid,uid) => {
     let expectedLvl = modules.xp.xpToLvl(xpobj.xp);
@@ -1548,7 +1554,7 @@ modules.xp = {
   isRequestingLevels: (m, d) => {
     let command = commandAndPrefix(d.content);
     if (!command)
-      return;
+      return false;
     let next = command.shift();
     if (next.toLowerCase() !== "rank")
       return false;
@@ -1563,9 +1569,13 @@ modules.xp = {
     let gid = d.guild_id;
     if (memberMap.get(gid).has(target))
       user = memberMap.get(gid).get(target).user;
+
     let xpobj = m.fetchXp(gid,user.id);
     m.checkLevelup(xpobj,gid,user.id);
     let rank = m.getRank(m,gid,user.id);
+    let remxp = xpobj.xp-m.lvlToXp(xpobj.lvl)
+    let levelXpReq = m.xpToNextLvl(xpobj.lvl);
+    let percent = Math.floor(1000*remxp/levelXpReq)/10.0;
 
     let xp_message = {embeds:[
         {
@@ -1575,9 +1585,10 @@ modules.xp = {
           timestamp: new Date(time).toISOString(),
           thumbnail: {url: "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".webp?size=320"},
           fields: [
-            {name:"Rank",value:rank+" place"},
-            {name:"Level",value:xpobj.lvl},
-            {name:"XP",value:xpobj.xp}
+            {name:"Rank",value:rank+" place",inline:true},
+            {name:"Level",value:xpobj.lvl,inline:true},
+            {name:"XP",value:xpobj.xp,inline:true},
+            {name:"Progress",value:remxp+"/"+levelXpReq+" ("+percent+"%) to level "+(xpobj.lvl+1)}
           ]
         }
       ]};
