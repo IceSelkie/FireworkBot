@@ -10,8 +10,8 @@ const channelMap = new Map();   // channel_id -> channel_obj
 const threadMap = new Map();    // thread_id -> thread_obj
 const guildNameMap = new Map(); // guild_id -> string
 const rolePositions = new Map();// role_id -> number (used to sort role orders when user leaves)
-const userXpMap = new Map()     // guild_id -> map<member_id,xpobj>
-                                // xpobj := {xp:int,lvl:int,lastxptime:time,message_count:int}
+const userXpMap = new Map();    // guild_id -> map<member_id,xpobj>
+                                //         xpobj := {xp:int,lvl:int,lastxptime:time,message_count:int}
 var sents = []
 var beta = true; // sets which set of modules to use (prevents spam when debugging)
 var version = "v0.17.1"+(beta?" beta":"")
@@ -1255,6 +1255,9 @@ modules.infoHelpUptime = {
           hasModuleXp = bot.modules.filter(a=>a.name==="xp").length>0;
           hasModuleThreadAlive = bot.modules.filter(a=>a.name==="threadAlive").length>0 && staff;
           hasModuleSaveLoad = bot.modules.filter(a=>a.name==="saveLoad").length>0 && dev;
+          hasModuleWhois = bot.modules.filter(a=>a.name==="whois").length>0;
+          hasModuleBoosters = bot.modules.filter(a=>a.name==="boosters").length>0;
+          hasModuleListModules = bot.modules.filter(a=>a.name==="listModules").length>0 && dev;
 
           replyToMessage(msg.d,"Firework bot ("+version+")\n"
             +"> "+"Default Commands:\n"
@@ -1274,11 +1277,21 @@ modules.infoHelpUptime = {
              "> "+" • `thread alive list     ` - (admin) List threads being kept from being archived\n"+
              "> "+" • `thread alive add [tid]` - (admin) Add a thread to be kept from being archived\n")
             +(!hasModuleSaveLoad?"":
-             "> "+"Thread Alive Module Commands:\n"+
+             "> "+"Save/Load Module Commands:\n"+
              "> "+" • `save` - (admin) Saves config and database to file\n"+
              "> "+" • `load` - (admin) Loads config and database from file\n"+
-             "> "+" • `dump` - (admin) Dumps bot contents for troubleshooting; Will also save\n")
-            )
+             "> "+" • `dump` - (admin) Dumps bot contents for troubleshooting; Will also trigger a save.\n")
+            +(!hasModuleWhois?"":
+             "> "+"Whoami Module Commands:\n"+
+             "> "+" • `whoami     ` - User details for yourself\n"+
+             "> "+" • `whois [uid]` - User details for any other user (in this server or not)\n")
+            +(!hasModuleBoosters?"":
+             "> "+"Boosters Module Commands:\n"+
+             "> "+" • `boosts` - Lists the server boosters\n")
+            +(!hasModuleListModules?"":
+             "> "+"List Modules Module Commands:\n"+
+             "> "+" • `listmodules` - Lists the modules that Firework currently has active\n")
+          )
         }
       }
     }
