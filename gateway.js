@@ -1,7 +1,7 @@
 const WebSocket = require("ws").WebSocket;
 const https = require("https");
 const fs = require("fs");
-const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("token.json").toString())).token}};
+const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("gateway_static/token.json").toString())).token}};
 const heartbeatUpdateInterval = 500;
 const reconnectInterval = 4000;
 const userMap = new Map();      // user_id -> user_obj
@@ -425,7 +425,7 @@ bot = new Bot();
 // const WebSocket = require("ws").WebSocket;
 // const https = require("https");
 // const fs = require("fs");
-// const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("token.json").toString())).token}};
+// const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("gateway_static/token.json").toString())).token}};
 // const heartbeatUpdateInterval = 500;
 
 
@@ -656,7 +656,7 @@ replyToMessage = async function(original, message_object) {
   return sendMessage(original.channel_id,message_object);
 }
 
-var mimetypes = new Map(JSON.parse(fs.readFileSync('mimetypes.json')))
+var mimetypes = new Map(JSON.parse(fs.readFileSync('gateway_static/mimetypes.json')))
 function mimelookup(ext) {
   if (mimetypes.has(ext))
     return mimetypes.get(ext);
@@ -1722,6 +1722,9 @@ modules.boosters = {
     let first = command.shift().toLowerCase()
     if (first !== "boosters" && first !== "boosts")
       return;
+
+    // Apparently this endpoint exists:
+    // https://canary.discord.com/api/v9/guilds/713127035156955276/premium/subscriptions
 
     let gid = msg.d.guild_id;
     let boosters = [...memberMap.get(gid).entries()].map(a=>a[1]).filter(a=>a.premium_since);
