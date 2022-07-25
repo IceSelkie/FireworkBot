@@ -1460,6 +1460,18 @@ modules.xp = {
     // if (getleaderboard())
     //   replywithleaderboard()
   },
+  lvlToXp: lvl => (5*lvl*(7+lvl)*(13+2*lvl))/6,
+  xpToNextLvl: lvl => 5*lvl*lvl + 50*lvl + 100,
+  max_lvl: 200,
+  lvls: undefined,
+  xpToLvl: xp => {
+    let m = modules.xp;
+    if (!m.lvls)
+      m.lvls = [...Array(modules.xp.max_lvl+1)].map((_,i)=>modules.xp.lvlToXp(i));
+    if (xp>m.lvls[modules.xp.max_lvl])
+      return 9999;
+    return m.lvls.map(a=>a-xp>0).indexOf(true)-1;
+  },
   canEarnXp: (m, d, time) => {
     let canEarn = true;
 
@@ -1501,6 +1513,23 @@ modules.xp = {
 
     return gmap.get(uid);
   },
+  checkLevelup: (xpobj,gid,uid) => {
+    let expectedLvl = modules.xp.xpToLvl(xpobj.xp);
+    let currentLvl = xpobj.lvl;
+    if (expectedLvl > currentLvl) {
+      // Level up notification
+      let notifobj = modules.xp.level_nofif.get(gid);
+      if (notifobj) {
+        // sendMessage(notifobj.announce_channel,notifobj.message.replaceAll("{player}",uid).replaceAll("{level}",expectedLvl));
+        sendMessage(c_fire,notifobj.message.replaceAll("{player}","<@"+uid+">").replaceAll("{level}",expectedLvl));
+      }
+    }
+    // Update value.
+    if (expectedLvl !== currentLvl) {
+      xpobj.lvl = expectedLvl;
+      userXpMap.get(gid).set(uid,xpobj);
+    }
+  },
   addXp: (m, gid, uid, time, amt) => {
     let defaultxp = m.xp_per_message;
     if (amt == undefined)
@@ -1513,6 +1542,8 @@ modules.xp = {
     xpobj.message_count += 1;
     xpobj.lastxptime = time;
     userXpMap.get(gid).set(uid,xpobj);
+
+    modules.xp.checkLevelup(xpobj,gid,uid);
   },
   isRequestingLevels: (m, d) => {
     let command = commandAndPrefix(d.content);
@@ -1533,7 +1564,8 @@ modules.xp = {
     if (memberMap.get(gid).has(target))
       user = memberMap.get(gid).get(target).user;
     let xpobj = m.fetchXp(gid,user.id);
-    let rank = m.getRank(m,gid,user.id)
+    m.checkLevelup(xpobj,gid,user.id);
+    let rank = m.getRank(m,gid,user.id);
 
     let xp_message = {embeds:[
         {
