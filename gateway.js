@@ -936,6 +936,7 @@ modules.userMemoryPre = {
       let member = JSON.parse(JSON.stringify(msg.d));
       let guild_id = member.guild_id;
       modules.userMemoryPre.mergeMember(guild_id,member.user.id,member);
+      userMap.set(guild_id,member.user);
     }
     if (msg.t === "GUILD_ROLE_CREATE" || msg.t === "GUILD_ROLE_UPDATE")
       rolePositions.set(msg.d.role.id,msg.d.role.position);
@@ -1108,7 +1109,7 @@ modules.inviteLogging = {
             for (let i=0; i<candidates.length; i++)
               message_object.embeds.push(
                 {color:5797096,title:"Invite Used",
-                  description:"Invite code `"+candidates[i].code+"` for "+channelLookup(candidates.channel_id)+"!"
+                  description:"Invite code `"+candidates[i].code+"` for "+channelLookup(candidates[i].channel_id)+"!"
                     +'\n  Created by: '+userLookup(candidates[i].inviter_id,msg.d.guild_id)
                     +'\n  Used by: '+userLookup(msg.d.user.id,msg.d.guild_id)
                     +'\n\n'+candidates[i].uses+'/'+(candidates[i].max_uses===0?"∞":candidates[i].max_uses)+" uses"
