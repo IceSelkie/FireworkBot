@@ -1195,7 +1195,8 @@ modules.threadLogging = {
     let guild = msg.d.guild_id
     if (msg.t === "THREAD_CREATE") {
       let message = {embeds:[{color:5797096,title:"Thread Created",
-              description:"<#"+msg.d.id+"> "+JSON.stringify(msg.d.name)+" was created in <#"+msg.d.parent_id+"> #"+channelMap.get(msg.d.parent_id).name+".\n\nThread by <@"+msg.d.owner_id+">."}]}
+              description:"<#"+msg.d.id+"> ["+JSON.stringify(msg.d.name)+"](https://discord.com/channels/"+guild+"/"+msg.d.id+"/"+msg.d.id
+              +") was created in <#"+msg.d.parent_id+"> #"+channelMap.get(msg.d.parent_id).name+".\n\nThread by <@"+msg.d.owner_id+">."}]}
       if (modules.threadLogging.guildThreadLogChannels.has(guild))
         sendMessage(modules.threadLogging.guildThreadLogChannels.get(guild),message).then(a=>console.log(a));
       threadMap.set(msg.d.id,msg.d)
@@ -1218,7 +1219,8 @@ modules.threadLogging = {
         diffText = "Attributes changed ("+diffs.length+"): \n> "+diffText.join("\n> ")
       } catch (e) {console.error("Diff failed:",e)}
       let message = {embeds:[{color:5797096,title:"Thread Modified",
-              description:"<#"+msg.d.id+"> "+JSON.stringify(msg.d.name)+" in <#"+msg.d.parent_id+"> #"+channelMap.get(msg.d.parent_id).name+" created by <@"+msg.d.owner_id+"> was modified."
+              description:"<#"+msg.d.id+"> ["+JSON.stringify(msg.d.name)+"](https://discord.com/channels/"+guild+"/"+msg.d.id+"/"+timeToSnowflake(msg.time)
+              +") in <#"+msg.d.parent_id+"> #"+channelMap.get(msg.d.parent_id).name+" created by <@"+msg.d.owner_id+"> was modified."
               +"\n"+diffText
             }]}
       threadMap.set(msg.d.id,msg.d)
