@@ -13,8 +13,8 @@ const rolePositions = new Map();// role_id -> number (used to sort role orders w
 const userXpMap = new Map();    // guild_id -> map<member_id,xpobj>
                                 //         xpobj := {xp:int,lvl:int,lastxptime:time,message_count:int}
 var sents = []
-var beta = true; // sets which set of modules to use (prevents spam when debugging)
-var version = "v0.17.1"+(beta?" beta":"")
+var beta = false; // sets which set of modules to use (prevents spam when debugging)
+var version = "v0.20.1"+(beta?" beta":"")
 
 
 // privilaged intents codes:
@@ -1722,7 +1722,11 @@ modules.whois = {
     if (!command)
       return;
 
-    // console.log("message seen")
+    // Todo:
+    //  - Shares this server
+    //  - User has previously been on this server
+    //  - bot/webhook?
+    //  - if shares: nitro? boosts? roles? time on server? nickname? name/nick history? message count? vc time?
 
     let first = command.shift().toLowerCase()
     if (first !== "whoami" && first !== "whois")
@@ -1855,8 +1859,12 @@ modules.boosters = {
     if (first !== "boosters" && first !== "boosts")
       return;
 
-    // Apparently this endpoint exists:
-    // https://canary.discord.com/api/v9/guilds/713127035156955276/premium/subscriptions
+    // Apparently this endpoint exists, so we dont need to scan members list:
+    // https://discord.com/api/v9/guilds/713127035156955276/premium/subscriptions
+
+    // Past me was wrong.
+    // That returns: `{"message": "Bots cannot use this endpoint", "code": 20001}`
+    // I guess *technically* you could hardcode to selfbot this...
 
     let gid = msg.d.guild_id;
     let boosters = [...memberMap.get(gid).entries()].map(a=>a[1]).filter(a=>a.premium_since);
