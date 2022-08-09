@@ -94,32 +94,37 @@ console.error=(a,b,c,d)=>{
 var config = null;
 load = function() {
   // Typically Unchanging
-  config = JSON.parse(fs.readFileSync("config.json"));
+  config = JSON.parse(fs.readFileSync("gateway_data/config.json"));
   config.threadAlive = new Set(config.threadAlive);
+  console.log("Config loaded.")
 
   // Load data that typically changes
-  if (fs.existsSync("data.json")) {
-    let data = JSON.parse(fs.readFileSync('data.json'));
+  if (fs.existsSync("gateway_data/threadMap.json")) {
+    let data = JSON.parse(fs.readFileSync("gateway_data/threadMap.json"));
+    Object.entries(data).forEach(a=>threadMap.set(a[0],a[1]));
+    console.log("threadMap loaded.")
+  } else console.error("Data threadMap JSON doesnt exist! Cannot read the Data That Typically Changes!");
 
-    Object.entries(data.threads).forEach(a=>threadMap.set(a[0],a[1]));
-
+  if (fs.existsSync("gateway_data/userXpMap.json")) {
+    let data = JSON.parse(fs.readFileSync("gateway_data/userXpMap.json"));
     userXpMap.clear();
-    Object.entries(data.levels).forEach(a=>userXpMap.set(a[0],new Map(Object.entries(a[1]))));
-  } else console.error("Data JSON doesnt exist! Cannot read the Data That Typically Changes!");
+    Object.entries(data).forEach(a=>userXpMap.set(a[0],new Map(Object.entries(a[1]))));
+    console.log("userXpMap loaded.")
+  } else console.error("Data userXpMap JSON doesnt exist! Cannot read the Data That Typically Changes!");
 }
 save = function() {
   // Typically Unchanging
   config.threadAlive = [...config.threadAlive];
-  fs.writeFileSync("config.json", JSON.stringify(config,null,2));
+  fs.writeFileSync("gateway_data/config.json", JSON.stringify(config,null,2));
   config.threadAlive = new Set(config.threadAlive);
 
   // Data that typically changes
-  fs.writeFileSync("data.json",JSON.stringify({
-      threads:
-        Object.fromEntries([...threadMap.entries()]),
-      levels:
-        Object.fromEntries([...userXpMap.entries()].map(a=>[a[0],Object.fromEntries(a[1])]))
-    },null,2));
+  fs.writeFileSync("gateway_data/threadMap.json",JSON.stringify((
+      Object.fromEntries([...threadMap.entries()])
+    ),null,2));
+  fs.writeFileSync("gateway_data/userXpMap.json",JSON.stringify((
+      Object.fromEntries([...userXpMap.entries()].map(a=>[a[0],Object.fromEntries(a[1])]))
+    ),null,2));
 
   // cache = [...activityMap.entries()].map(a=>[a[0],[...a[1].entries()]])
   // cache = {statusMap:Object.fromEntries(statusMap),activityMap:Object.fromEntries([...activityMap.entries()].map(a=>[a[0],Object.fromEntries(a[1])]))}
@@ -150,12 +155,12 @@ class Bot {
     this.timeLastReconnect = null;
 
     try {
-      let data = fs.readFileSync("firework_config.json").toString();
+      let data = fs.readFileSync("gateway_data/firework_config.json").toString();
       data = JSON.parse(data);
       this.config = data;
     } catch (err) {}
     try {
-      let data = fs.readFileSync("firework_plannedactions.json").toString();
+      let data = fs.readFileSync("gateway_data/firework_plannedactions.json").toString();
       data = JSON.parse(data);
       this.plannedMessages = data;
     } catch (err) {}
