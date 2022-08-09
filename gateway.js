@@ -1906,7 +1906,7 @@ tempModules = {
   rss: null,
   createThread: null,
   acceptDirectMessage: null,
-  genRules: null
+  sendPregeneratedMessageSet: null
 }
 
 tempModules.rss = {
@@ -1995,28 +1995,34 @@ tempModules.acceptDirectMessage = {
   }
 }
 
-tempModules.genRules = {
-  name: "genRules",
+tempModules.sendPregeneratedMessageSet = {
+  name: "temp_sendPregeneratedMessageSet",
   onDispatch: (bot,msg) => {
     if (msg.t === "MESSAGE_CREATE" && msg.d.author.id === "163718745888522241"){
       if (/^<@870750872504786944> send /.test(msg.d.content)) {
         let fname = msg.d.content.substring("<@870750872504786944> send ".length);
         if (fs.existsSync("sets/"+fname))
-          tempModules.genRules.sendMessageSet(msg.d,JSON.parse(fs.readFileSync("sets/"+fname)).flat(5),[],0);
+          tempModules.sendPregeneratedMessageSet.sendMessageSet(msg.d,JSON.parse(fs.readFileSync("sets/"+fname)).flat(5),[],0);
       }
     }
   },
   sendMessageSet: (dest,messages,responses,index) => {
     messages = messages.flat();
-    if (index>messages.length)
+    if (messages[index] == undefined)
       return;
 
-    sendMessage(dest.channel_id, JSON.parse(JSON.stringify(messages[index]).replace("{{CID}}",dest.channel_id).replace("{{MID}}",responses[0]?responses[0].id:"undefined")))
+    sendMessage(dest.channel_id, JSON.parse(JSON.stringify(messages[index])
+      .replaceAll("{{CID}}",dest.channel_id)
+      // Replace {{MID}} with MID of 0th message.
+      // Replace {{MID123}} with MID of 123rd message
+      .split(/({{MID[0-9]*}})/).map(a=>Number((a.match(/{{MID([0-9]*)}}/)?.at(1)))+.1 || a).map(a=>typeof a === "number"?responses?.at(Math.floor(a))?.id??a:a).join(""))
+    )
       .then(a=>
       {
-        console.log(a);
+        console.log("Retcode:"+a.ret);
         responses.push(JSON.parse(a.res));
-        setTimeout(()=>{tempModules.genRules.sendMessageSet(dest,messages,responses,index+1)},1500);
+        setTimeout(()=>{tempModules.sendPregeneratedMessageSet.sendMessageSet(dest,messages,responses,index+1)},1500);
+        // Todo: Allow reactions to be automatically added. eg: #roles channel default messages.
       });
   }
 }
@@ -2053,7 +2059,7 @@ if (!beta) {
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
   // bot.addModule(tempModules.acceptDirectMessage) //
-  // bot.addModule(tempModules.genRules) //
+  // bot.addModule(tempModules.sendPregeneratedMessageSet) //
 
   bot.modulesPre.push(modules.userMemoryPre);
   bot.modulesPost.push(modules.userMemoryPost);
@@ -2081,7 +2087,7 @@ if (beta) {
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
   // bot.addModule(tempModules.acceptDirectMessage) //
-  // bot.addModule(tempModules.genRules)
+  bot.addModule(tempModules.sendPregeneratedMessageSet)
 
   bot.modulesPre.push(modules.userMemoryPre);
   bot.modulesPost.push(modules.userMemoryPost);
