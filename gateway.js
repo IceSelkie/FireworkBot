@@ -1544,8 +1544,8 @@ modules.xp = {
       // Level up notification
       let notifobj = modules.xp.level_nofif.get(gid);
       if (notifobj) {
-        // sendMessage(notifobj.announce_channel,notifobj.message.replaceAll("{player}",uid).replaceAll("{level}",expectedLvl));
-        sendMessage(c_fire,notifobj.message.replaceAll("{player}","<@"+uid+">").replaceAll("{level}",expectedLvl));
+        sendMessage(notifobj.announce_channel,notifobj.message.replaceAll("{player}","<@"+uid+">").replaceAll("{level}",expectedLvl));
+        // sendMessage(c_fire,notifobj.message.replaceAll("{player}","<@"+uid+">").replaceAll("{level}",expectedLvl));
       }
     }
     // Update value.
