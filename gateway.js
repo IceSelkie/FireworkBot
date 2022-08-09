@@ -446,7 +446,7 @@ function discordRequest(path, data=null, method=null, attachments=null, isText=t
     '    or {filename?:"pfp.png",mime?:"image/png",data:"not an image"}\n'+
     '    or [{},{},"",{}] of above\n'+
     'isText=true -> utf8 text -> returned.res will be string\n'+
-    '    otherwise, isText=false -> returns Buffer of raw bytes\n'+
+    '    otherwise, isText=false -> returned.res will be Buffer of raw bytes\n'+
     'useToken=true -> uses authorization header or not in request. Discord API needs. Everywhere else will leak bot token.\n'+
     '\n'+
     'var multipartboundary = "boundary" for "multipart/form-data" boundaries.\n'+
@@ -529,7 +529,7 @@ function discordRequest(path, data=null, method=null, attachments=null, isText=t
         }
         if (att.data) {
           if (!att.filename)
-            att.filename = "unknown.txt"
+            att.filename = "unknown"
           if (!att.mime)
             att.mime = "text/plain"
           buffer = att.data
@@ -740,7 +740,18 @@ function isDev(uid) {
     return true;
 }
 
-
+/**
+ * timeDuration
+ * Takes in a duration or a start time and end time in milliseconds, and finds
+ * the duration between them, outputting it in a human readable format.
+ * 
+ * - Correctly pluralizes time units
+ * - If two or more time unit terms, joins the last two with "and"
+ * - negative duration puts "negative" in front
+ * - If one zero term between two non-zeros, will display.
+ * - If two or more concecutive zeros, don't display them.
+ * - no commas.
+ */
 function timeDuration (start, end) {
   if (start==null)
     return null;
@@ -788,13 +799,17 @@ function timeDuration (start, end) {
 
   if (isNeg)
     ret2[0].push("negative");
-  if (ret2.length>=3) // empty/negative
+  if (ret2.length>=3) // negative (or empty array) is always 0th
     ret2[ret2.length-2].push("and");
   return ret2.flat().join(" ");
 }
 
 function snowflakeToTime(snowflake) {
   return Number(BigInt(snowflake)/4194304n+1420070400000n);
+}
+
+function timeToSnowflake(time) {
+  return String((BigInt(time)-1420070400000n)*4194304n);
 }
 
 function userLookup(uid,gid) {
@@ -1163,7 +1178,7 @@ modules.disboardReminder = {
           sendMessage("870868315793391686",{embeds:[{description:"A [bump]("+bumpLink+") was just done in "+guildName+" by "+memberName}]});
           setTimeout(()=>sendMessage(msg.d.channel_id,{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [up here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
           setTimeout(()=>sendMessage("870868315793391686",{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
-          setTimeout(()=>sendMessage(msg.d.channel_id,"A new bump can now be done with </bump:947088344167366698>."),2*60*60*1000);
+          setTimeout(()=>sendMessage(msg.d.channel_id,"A new bump can now be done with /bump.\nAnd if you're on desktop, you can click here to autofill the command: </bump:947088344167366698>"),2*60*60*1000);
           setTimeout(()=>sendMessage("870868315793391686","A new bump can now be done."),2*60*60*1000);
         }
       }
@@ -1213,7 +1228,7 @@ modules.threadLogging = {
     if (msg.t === "GUILD_UPDATE") {
       sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Server Modified",
               description:"The server was modified in some way."
-              +"\n(This could be rename, server icon change, owner change, or similar!)"}]});
+              +"\n(This could be rename, server icon change, owner change, boost, automod, or similar!)"}]});
     }
 
     // Should also read threads from active threads on start.
@@ -1235,7 +1250,7 @@ modules.infoHelpUptime = {
         if (/^(?:| prefix)$/i.test(message)) {
           replyToMessage(msg.d,"Firework's prefix is `@"+bot.self.username+"#"+bot.self.discriminator+"` or `<@"+bot.self.id+">`");
         }
-        if (/^(?: uptime| online| stats?| info)$/i.test(message)) {
+        if (/^(?: uptime| online| statu?s?| info)$/i.test(message)) {
           let now = Date.now();
           let online = timeDuration(bot.timeStart, now);
           let reconnect = timeDuration(bot.timeLastReconnect, now);
