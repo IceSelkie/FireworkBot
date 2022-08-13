@@ -565,7 +565,7 @@ function discordRequest(path, data=null, method=null, attachments=null, isText=t
       multipart = true;
     }
     
-    saveObject = {
+    let saveObject = {
       method:opts.method,
       path:opts.path,
       timeSend:Date.now()
