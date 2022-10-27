@@ -9,13 +9,14 @@ const memberMap = new Map();    // guild_id -> map<member_id,members> (contains 
 const channelMap = new Map();   // channel_id -> channel_obj
 const threadMap = new Map();    // thread_id -> thread_obj
 const guildNameMap = new Map(); // guild_id -> string
+const guildOwnerMap = new Map() // guild_id -> user_id
 const rolePositions = new Map();// role_id -> number (used to sort role orders when user leaves)
 const userXpMap = new Map();    // guild_id -> map<member_id,xpobj>
                                 //         xpobj := {xp:int,lvl:int,lastxptime:time,message_count:int}
+const userDmMap = new Map();    // user_id -> channel_id
 var sents = []
 var beta = false; // sets which set of modules to use (prevents spam when debugging)
-var version = "v0.20.1"+(beta?" beta":"")
-
+var version = "v0.25.1"+(beta?" beta":"")
 
 // privilaged intents codes:
 //  w/o       w/
@@ -36,6 +37,11 @@ const u_gacek = "488383281935548436"
 const r_mod = "724461190897729596"
 const r_modling = "739602680653021274"
 const r_botwing = "713510512150839347"
+
+const SNOWFLAKE_ONE_MONTH = "11234023833600000" // 17 digits starts with 11
+                //  oldest: "49230618424246272" // 17 digits starts with 49
+                //     me: "163718745888522241" // 18 digits starts with 16
+                //  2022: "1000000000000000000" // 19 digits
 
 
 const dispatchTypes = [  // GUILDS (1 << 0)
@@ -102,34 +108,68 @@ load = function() {
   if (fs.existsSync("gateway_data/threadMap.json")) {
     let data = JSON.parse(fs.readFileSync("gateway_data/threadMap.json"));
     Object.entries(data).forEach(a=>threadMap.set(a[0],a[1]));
-    console.log("threadMap loaded.")
+    console.log("Thread Map loaded.")
   } else console.error("Data threadMap JSON doesnt exist! Cannot read the Data That Typically Changes!");
 
   if (fs.existsSync("gateway_data/userXpMap.json")) {
     let data = JSON.parse(fs.readFileSync("gateway_data/userXpMap.json"));
     userXpMap.clear();
     Object.entries(data).forEach(a=>userXpMap.set(a[0],new Map(Object.entries(a[1]))));
-    console.log("userXpMap loaded.")
+    console.log("XP Map loaded.")
   } else console.error("Data userXpMap JSON doesnt exist! Cannot read the Data That Typically Changes!");
+
+  if (fs.existsSync("gateway_data/userDmMap.json")) {
+    let data = JSON.parse(fs.readFileSync("gateway_data/userDmMap.json"));
+    userDmMap.clear();
+    Object.entries(data).forEach(a=>userDmMap.set(a[0],a[1]));
+    console.log("DM Map loaded.")
+  } else console.error("Data userDmMap JSON doesnt exist! Cannot read the Data That Typically Changes!");
 }
 save = function() {
-  // Typically Unchanging
-  config.threadAlive = [...config.threadAlive];
-  fs.writeFileSync("gateway_data/config.json", JSON.stringify(config,null,2));
-  config.threadAlive = new Set(config.threadAlive);
+    // Typically Unchanging
+  try {
+    config.threadAlive = [...config.threadAlive].sort();
+    fs.writeFileSync("gateway_data/config.json", JSON.stringify(config,null,2));
+    config.threadAlive = new Set(config.threadAlive);
+    console.log("Config saved.");
+  } catch (e) {console.error(e)}
 
-  // Data that typically changes
-  fs.writeFileSync("gateway_data/threadMap.json",JSON.stringify((
-      Object.fromEntries([...threadMap.entries()])
-    ),null,2));
-  fs.writeFileSync("gateway_data/userXpMap.json",JSON.stringify((
-      Object.fromEntries([...userXpMap.entries()].map(a=>[a[0],Object.fromEntries(a[1])]))
-    ),null,2));
-
-  // cache = [...activityMap.entries()].map(a=>[a[0],[...a[1].entries()]])
-  // cache = {statusMap:Object.fromEntries(statusMap),activityMap:Object.fromEntries([...activityMap.entries()].map(a=>[a[0],Object.fromEntries(a[1])]))}
-  // fs.writeFileSync("cache.json",JSON.stringify(cache))
+    // Data that typically changes
+  try {
+    fs.writeFileSync("gateway_data/threadMap.json",JSON.stringify((
+        Object.fromEntries([...threadMap.entries()].sort()) // sort by thread id oldest to newest
+      ),null,2));
+    console.log("Thread Map saved.");
+  } catch (e) {console.error(e)}
+  try {
+    fs.writeFileSync("gateway_data/userXpMap.json",JSON.stringify((
+        Object.fromEntries([...userXpMap.entries()].map(a=>[a[0],Object.fromEntries(a[1])]))
+      ),null,2));
+    console.log("XP Map saved.");
+  } catch (e) {console.error(e)}
+  try {
+    fs.writeFileSync("gateway_data/userDmMap.json",JSON.stringify((
+        Object.fromEntries([...userDmMap.entries()].sort((a,b)=>Number(a)-Number(b)))
+      ),null,2))
+    console.log("DM Map saved.");
+  } catch (e) {console.error(e)}
 }
+
+
+// Discord requests queued to update various caches without breaking ratelimit.
+var cq = {
+  high: "HIGH",
+  medium: "MEDIUM",
+  low: "LOW",
+  priorities: ["HIGH","MEDIUM","LOW"],
+  lastSent: 0, // in millis
+  maxRate: 500, // in ms
+  add: (priority, func) => cq.queue.get(priority).push(func),
+  pop: () => cq.priorities.map(a=>cq.queue.get(a)).find(a=>a.length>0)?.shift(),
+  attempt: () => cq.lastSent+cq.maxRate<=new Date()?cq.pop()?.(cq.lastSent=+new Date()):undefined
+};
+  cq.queue = new Map(cq.priorities.map(a=>[a,[]]));
+
 
 class Bot {
   constructor() {
@@ -191,10 +231,11 @@ class Bot {
     }
     if (Date.now()>=this.lastHeartbeat+this.interval) {
       console.log("[hb] Ba-Bum. Heartbeat sent for message "+this.lastSequence+".");
-      this.ws.send(JSON.stringify({"op":1,"d": this.lastSequence},null));
+      this.ws.send(JSON.stringify({"op":1,"d": this.lastSequence}));
       this.lastHeartbeat = Date.now();
     }
     setTimeout(()=>this.heartbeat(),500);
+    try{cq.attempt()}catch{}
   }
 
   hasInterest = function(string) {
@@ -319,7 +360,11 @@ class Bot {
       // if hb is called now, it would send heartbeat on a multiple of the update interval.
       thiss.lastHeartbeat = 0;
       console.log("[hb] Starting new Heartbeat thread. This should be the only place to do so, outside of manual heartbeat thread restart.")
-      setTimeout(()=>thiss.heartbeat(), thiss.interval*Math.random());
+      // First heartbeat should run after a jitter:
+      thiss.lastHeartbeat = 2*new Date() // Dont run yet
+      thiss.heartbeat() // Start heartbeat thread
+      // set to "run now" after jitter has passed.
+      setTimeout(()=>thiss.lastHeartbeat=0, thiss.interval*Math.random());
     } else
     // Send Heartbeat ASAP
     if (message.op === 1) {
@@ -812,15 +857,31 @@ function timeToSnowflake(time) {
   return String((BigInt(time)-1420070400000n)*4194304n);
 }
 
+function stringToSnowflake(str) {
+  // Try for snowflake, ping, silent ping, channel, role, emote, manual cmutg, or time.
+  let regexForTime = /\<t:[0-9]+(?:\:[fFdDtTR])?\>/
+  let regex = /^([0-9]+)$|\<(?:\@|\@\!|\#|\@\&|\:[a-zA-Z\-_~0-9]*\:|[cmutg])([0-9]+)\>/
+  let match = str?.match(regex);
+  if (match == null)
+    return null;
+
+  match = match.splice(1,2).find(a=>a);
+
+  // If none of those are found, try to interpret the whole thing as a number
+  if (snowflakeToTime(match)<snowflakeToTime(SNOWFLAKE_ONE_MONTH) || snowflakeToTime(match) > +new Date())
+    return null;
+  return match;
+}
+
 function userLookup(uid,gid) {
   try {
     // TODO: am using userMap before user is put into it.
     let username = userMap.get(uid).username + "#" + userMap.get(uid).discriminator
     let nick = undefined
     if (memberMap.has(gid)) {
-      let guildmap = memberMap.get(gid)
-      if (guildmap.has(uid)) {
-        let member = guildmap.get(uid)
+      let guildMap = memberMap.get(gid)
+      if (guildMap.has(uid)) {
+        let member = guildMap.get(uid)
         if (member.nick)
           nick = member.nick
       }
@@ -877,8 +938,10 @@ modules = {
   xp: null,
   saveLoad: null,
   whois: null,
+  whatis: null,
   boosters: null,
-  listModules: null
+  listModules: null,
+  webhookWatch: null
 }
 
 modules.nop = {
@@ -914,6 +977,7 @@ modules.userMemoryPre = {
   onDispatch: (bot,msg)=>{
     if (msg.t === "GUILD_CREATE") {
       guildNameMap.set(msg.d.id,msg.d.name)
+      guildOwnerMap.set(msg.d.id,msg.d.owner_id)
       msg.d.members.forEach(a=>{
         if (!userMap.has(a.user.id)) {
           userMap.set(a.user.id,a.user);
@@ -928,6 +992,8 @@ modules.userMemoryPre = {
     if (msg.t === "GUILD_UPDATE") {
       if (msg.d.name)
         guildNameMap.set(msg.d.id,msg.d.name)
+      if (msg.d.owner_id)
+        guildOwnerMap.set(msg.d.id,msg.d.owner_id)
     }
     if (msg.t === "USER_UPDATE") {
       userMap.set(msg.user.id,msg.user);
@@ -985,7 +1051,7 @@ modules.joinMessages = {
                  '{USER} is here now. Will this keep Darkstalker away?',
                  'Our NightWing seer foresaw {USER}\'s arrival. And here {USER} is!',
                  'A new dragonet has hatched! Everybody welcome {USER}!',
-                 '{USER} has risen from the under a mountain! Hopefully {USER} isn\'t Darkstalker...',
+                 '{USER} has risen from under a mountain! Hopefully {USER} isn\'t Darkstalker...',
                  'The __Eye of Onyx__ fortold that _The One_ is coming! And now here is {USER}! Maybe {USER} is _The One_...?'],
   genJoinMessage: u=> ""+modules.joinMessages.messagesJoin[u.id % modules.joinMessages.messagesJoin.length].replace(/\{USER\}/g,"**"+u.username+"**").replace(/\{PING\}/g,"<@"+u.id+">"),
   messagesLeave: ['{USER} has left.',
@@ -1121,41 +1187,44 @@ modules.inviteLogging = {
               sendMessage(modules.inviteLogging.guildInviteLogChannels.get(guild),message_object).then(a=>console.log(a));
           }
         });
+
+      // Update invites cache.
+      invites_promise.then(modules.inviteLogging.updateInviteMap);
     }
 
     let gid;
     if (msg.t === "GUILD_CREATE") gid = msg.d.id;
     if (msg.t === "INVITE_CREATE") gid = msg.d.guild_id;
 
-    if (msg.t === "GUILD_CREATE" || msg.t === "INVITE_CREATE")
-      invites_promise=discordRequest("guilds/"+gid+"/invites");
-
     // Update invites cache.
-    if (msg.t === "GUILD_CREATE" || msg.t === "INVITE_CREATE" || msg.t === "GUILD_MEMBER_ADD") {
-      invites_promise.then(
-        response => {
-          let invites = JSON.parse(response.res);
-          if (invites.message && invites.code && invites.code === 50013) {
-            console.log("No perms to view invites for this guild. Skipping.")
-          } else {
-            invites.forEach(
-              a=>{
-                map.set(a.code,
-                  {
-                    code:a.code,
-                    user:a.inviter,
-                    max_uses:a.max_uses,
-                    uses:a.uses,
-                    max_age:a.max_age,
-                    time:Date.parse(a.created_at),
-                    guild_id:a.guild.id,
-                    channel_id:a.channel.id,
-                    channel_name:a.channel.name
-                  });
-              });
-          }
+    if (msg.t === "GUILD_CREATE" || msg.t === "INVITE_CREATE")
+      cq.add(cq.high,()=>discordRequest("guilds/"+gid+"/invites").then(modules.inviteLogging.updateInviteMap))
+    cq.attempt();
+
+  },
+  updateInviteMap: (discordRequestResponse) => {
+    try {
+    let invites = JSON.parse(discordRequestResponse.res);
+    if (invites.message && invites.code && invites.code === 50013) {
+      console.log("No perms to view invites for this guild. Skipping.")
+    } else {
+      invites.forEach(
+        a=>{
+          modules.inviteLogging.inviteMap.set(a.code,
+            {
+              code:a.code,
+              user:a.inviter,
+              max_uses:a.max_uses,
+              uses:a.uses,
+              max_age:a.max_age,
+              time:Date.parse(a.created_at),
+              guild_id:a.guild.id,
+              channel_id:a.channel.id,
+              channel_name:a.channel.name
+            });
         });
     }
+    } catch (e) {console.error(e); console.trace(); _debug_attempted = discordRequestResponse}
   }
 }
 
@@ -1179,7 +1248,7 @@ modules.disboardReminder = {
           sendMessage("870868315793391686",{embeds:[{description:"A [bump]("+bumpLink+") was just done in "+guildName+" by "+memberName}]});
           setTimeout(()=>sendMessage(msg.d.channel_id,{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [up here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
           setTimeout(()=>sendMessage("870868315793391686",{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
-          setTimeout(()=>sendMessage(msg.d.channel_id,"A new bump can now be done with /bump.\nAnd if you're on desktop, you can click here to autofill the command: </bump:947088344167366698>"),2*60*60*1000);
+          setTimeout(()=>sendMessage(msg.d.channel_id,"A new bump can now be done with /bump.\nYou can click here to autofill the command: </bump:947088344167366698>"),2*60*60*1000);
           setTimeout(()=>sendMessage("870868315793391686","A new bump can now be done."),2*60*60*1000);
         }
       }
@@ -1746,33 +1815,37 @@ modules.whois = {
       modules.whois.part2(msg,user.id,user);
     } else {
       // ensure is snowflake
-      try {
-        if (snowflakeToTime(uid)<snowflakeToTime(0) || snowflakeToTime(uid) > msg.time)
-          throw 'goto catch'
-      } catch (e) {
-        replyToMessage(msg.d,"That's not a valid user id!");
+      let snowflake = stringToSnowflake(uid)
+      if (!snowflake) {
+        replyToMessage(msg.d,JSON.stringify(uid)+" is not a valid user id!");
         return;
       }
-      discordRequest('users/'+uid).then(a=>{
-        if (a.ret === 200) {
-          user = JSON.parse(a.res);
-          userMap.set(user.id,user);
-          modules.whois.part2(msg,user.id,user);
-        } else if (a.ret === 404) {
-          replyToMessage(msg.d, "No users exists with that id.");
-        } else {
-          replyToMessage(msg.d,"Something went wrong.");
-        }
-      });
+      let webhook = modules.webhookWatch.webhookMap?.get(msg.d.guild_id)?.[uid];
+      if (webhook)
+        modules.whois.part2webhook(msg,webhook.id,webhook);
+      else {
+        discordRequest('users/'+snowflake).then(a=>{
+          if (a.ret === 200) {
+            user = JSON.parse(a.res);
+            userMap.set(user.id,user);
+            modules.whois.part2(msg,user.id,user);
+          } else if (a.ret === 404) {
+            replyToMessage(msg.d, "No users exists with that id.");
+          } else {
+            replyToMessage(msg.d,"Something went wrong:\n\t"+a.ret);
+          }
+        });
+      }
     }
   },
   part2: (msg,uid,user) => {
     // Might be wrong if user has left guild since bot started.
     let sharesGuild = (!!msg.d.guild_id) && memberMap.get(msg.d.guild_id).has(uid);
 
-    avatar = "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".png?size=4096"
+    avatar = "https://cdn.discordapp.com/avatars/"+uid+"/"+user.avatar+".png?size=4096"
     let embed = {
-        "author": {"name": user.username,
+        "author": {
+          "name": user.username,
           "icon_url": avatar
         },
         "title": user.username+"#"+user.discriminator,
@@ -1782,7 +1855,7 @@ modules.whois = {
           {
             "name": "Account Age",
             "inline": true,
-            "value": timeDuration(snowflakeToTime(user.id),msg.time)
+            "value": timeDuration(snowflakeToTime(uid),msg.time)
           }
         ],
         "footer": { "text": user.id },
@@ -1790,18 +1863,52 @@ modules.whois = {
         "thumbnail": { "url": avatar }
       }
 
-      if (user.public_flags)
+      let isOwner = msg.d.guild_id && guildOwnerMap.get(msg.d.guild_id) === uid;
+      let isNitro = {'163718745888522241':'2018-07-16T17:04z','642971818965073931':'2022-06-13T05:20z'}[uid]
+      let boostTime = {'163718745888522241':'2021-03-18T20:29z','642971818965073931':'2022-06-13T05:35z'}[uid]
+      boostTime = (msg.time-Date.parse(boostTime))/1000/60/60/24/365*12
+      if (user.public_flags) {
+
         embed.fields.push({
             "name": "Badges",
             "inline": true,
-            "value": modules.whois.flagToBadgeEmotes(user.public_flags)
+            "value": modules.whois.flagToBadgeEmotes(user.public_flags,isOwner,isNitro,boostTime)+(isNitro?"":"\nNitro badges may be old/missing.")
           })
+      }
 
     replyToMessage(msg.d,{embeds:[embed]})
     // if shares guild: roles + server online time
   },
-  flagToBadgeEmotes: (flags,nitro,boost,owner,slash) => {
-    badges = 
+  part2webhook: (msg,wid,webhook) => {
+    avatar = webhook.avatar??"https://cdn.discordapp.com/avatars/"+wid+"/"+webhook.avatar+".png?size=4096"
+    let embed = {
+        "author": {
+          "name": webhook.user.username+"#"+webhook.user.discriminator,
+          "icon_url": "https://cdn.discordapp.com/avatars/"+webhook.user.id+"/"+webhook.user.avatar+".png?size=4096"
+        },
+        "title": "Webhook: "+webhook.name,
+        "color": null,
+        "fields": [
+          {
+            "name": "Webhook Age",
+            "inline": true,
+            "value": timeDuration(snowflakeToTime(wid),msg.time)
+          },
+          {
+            "name": "Channel",
+            "inline": true,
+            "value": channelLookup(webhook.channel_id)
+          }
+        ],
+        "footer": { "text": wid },
+        "timestamp": new Date(snowflakeToTime(wid)).toISOString()
+      }
+
+    replyToMessage(msg.d,{embeds:[embed]})
+    // if shares guild: roles + server online time
+  },
+  flagToBadgeEmotes: (flags,owner,nitro,boost) => {
+    flagBadges = 
       [
         "<:badge_discord_staff:1000072146657226872>",
         "<:badge_partnered_server_owner:1000072164327837826>",
@@ -1813,11 +1920,24 @@ modules.whois = {
         "<:badge_early_supporter:1000072151191261215>",
         "<:badge_team_pseudo_user:1000104098043011112>", /* ? */ null, null, null,
         "<:badge_bug_hunter_level_2:1000072142337081364>", null,
-        "<:badge_verified_bot:1000104125217906778>", // ?
+        "<:badge_verified_bot:1007791789794656317>", // custom made by me
         "<:badge_early_bot_dev:1000072148829864007>",
         "<:badge_community_moderator:1000072144119677018>",
-        "<:badge_bot_http_interactions:1000104149158993961>" // ?
+        "<:badge_supports_commands:1000072168576647358>"
       ];
+    boostBadges = 
+      {
+         0: "",
+         1: "<:badge_boost_1_month:1000081834203414698>",
+         2: "<:badge_boost_2_months:1000081836631916704>",
+         3: "<:badge_boost_3_months:1000081839492431912>",
+         6: "<:badge_boost_6_months:1000081841912565802>",
+         9: "<:badge_boost_9_months:1000081844324286524>",
+        12:"<:badge_boost_12_months:1000081846786343012>",
+        15:"<:badge_boost_15_months:1008176169356632124>",
+        18:"<:badge_boost_18_months:1000081849340666036>",
+        24:"<:badge_boost_24_months:1000081898925731901>"
+      };
 
     let ret = 
         flags         // Flags is a binary encoded number
@@ -1825,26 +1945,173 @@ modules.whois = {
         .split(/(.)/).filter((a,i)=>i%2) // Split digits
         .reverse()    // bigendian -> littleendian
         .map(a=>a=='1') // '1' and '0' to boolean values
-        .map((a,i)=>a?badges[i]?badges[i]:"?":"") // Extract badges, if exist
+        .map((a,i)=>a?flagBadges[i]??":unknown_flag_"+i+":":"") // Extract badges, if exist
         .join(""); // join badges together
-    return ret;
+    if (nitro) ret += "<:badge_nitro:1000072162557821030>"
+    if (boost>0) {
+      boost = boost<1?1:Math.floor(boost);
+      while (!boostBadges[boost]) boost--;
+      ret += boostBadges[boost]
+    }
+    if (owner) ret += "\n<:badge_server_owner:1000072165976199178>"
 
-    // boostBadges = 
-    //   {
-    //      0: "",
-    //      1: "<:badge_boost_1_month:1000081834203414698>",
-    //      2: "<:badge_boost_2_months:1000081836631916704>",
-    //      3: "<:badge_boost_3_months:1000081839492431912>",
-    //      6: "<:badge_boost_6_months:1000081841912565802>",
-    //      9: "<:badge_boost_9_months:1000081844324286524>",
-    //     12:"<:badge_boost_12_months:1000081846786343012>",
-    //     18:"<:badge_boost_18_months:1000081849340666036>",
-    //     24:"<:badge_boost_24_months:1000081898925731901>"
-    //   };
-    // if (owner) ret = "<:badge_server_owner:1000072165976199178>" + ret
-    // if (slash) ret = "<:badge_supports_commands:1000072168576647358>" + ret
-    // if (nitro) ret += "<:badge_nitro:1000072162557821030>"
-    // if (boost) ret += boostBadges[boost]
+    return ret;
+  }
+}
+
+
+modules.whatis = {
+  name: "whatis",
+  cooldownTime: 10000,
+  commandCooldown: new Map(),
+  onDispatch: async (bot, msg) => {
+    if (msg.t !== "MESSAGE_CREATE")
+      return;
+    let command = commandAndPrefix(msg.d.content);
+    if (!command)
+      return;
+
+    let first = command.shift().toLowerCase()
+    if (first !== "whatis")
+      return;
+
+    let id = command.shift()
+    let snowflake = stringToSnowflake(id)
+    if (!snowflake) {
+      replyToMessage(msg.d,JSON.stringify(id)+" is not a valid user id!");
+      return;
+    }
+
+    let m = modules.whatis;
+    if (m.commandCooldown.get(msg.d.id) > msg.time - m.cooldownTime) {
+      replyToMessage(msg.d,"You've recently used this command! Please wait "+timeDuration(msg.time-m.commandCooldown.get(msg.d.author.id)-m.cooldownTime)+".");
+      return;
+    }
+
+    replyToMessage(msg.d,"Attempting...");
+
+    let user = userMap.get(snowflake);
+    let userFound = user?"**Found**":"_Unknown_";
+    if (!user) {
+      let req = await discordRequest('users/'+snowflake)
+      switch (req.ret) {
+               case 404: userFound = "_Doesn't Exist_";
+        break; case 403: userFound = "**Exists**";
+        break; case 200: userFound = "**Found**"; userMap.set(snowflake,user = JSON.parse(req.res));
+        break;  default: userFound = "_Unknown (Error: "+req.ret+")_";
+      }
+    }
+    let webhook = modules.webhookWatch.webhookMap?.get(msg.d.guild_id)?.[snowflake];
+    let webhookFound = webhook?"**Found**":"_Unknown_"
+    if (!webhook) {
+      let req = await discordRequest('webhooks/'+snowflake)
+      switch (req.ret) {
+               case 404: webhookFound = "_Doesn't Exist_";
+        break; case 403: webhookFound = "**Exists**";
+        break; case 200: webhookFound = "**Found**";
+          webhook = JSON.parse(req.res);
+          let gid = webhook.guild_id;
+          let whm = modules.webhookWatch.webhookMap;
+          if (!whm?.has(gid)) whm.set(gid,Object.fromEntries([[snowflake,webhook]]));
+          else {
+            whmg = whm?.get(gid);
+            if (whmg) whmg[snowflake] = webhook
+          }
+        break;  default: webhookFound = "_Unknown (Error: "+req.ret+")_";
+      }
+    }
+    let guild = null;//guildMap?.get(snowflake);
+    let guildFound = guild?"**Found**":"_Unknown_"
+    if (!guild) {
+      let req = await discordRequest('guilds/'+snowflake+'/emojis')
+      switch (req.ret) {
+               case 404: guildFound = "_Doesn't Exist_";
+        break; case 403: guildFound = "**Exists**";
+        break; case 200: guildFound = "**Found**"; /* guildMap.set(snowflake, */ //guild=JSON.parse(await discordRequest('guilds/'+snowflake).res) /* / */
+        break;  default: guildFound = "_Unknown (Error: "+req.ret+")_";
+      }
+    }
+    let channel = channelMap.get(snowflake);
+    let channelFound = channel?"**Found**":"Unknown"
+    if (!channel) {
+      let req = await discordRequest('channels/'+snowflake)
+      switch (req.ret) {
+               case 404: channelFound = "_Doesn't Exist_";
+        break; case 403: channelFound = "**Exists**";
+        break; case 200: channelFound = "**Found**"; channelMap.set(snowflake,channel);
+        break;  default: channelFound = "_Unknown (Error: "+req.ret+")_";
+      }
+    }
+    let req = await discordRequest('https://cdn.discordapp.com/emojis/'+snowflake+'.webp?size=16',null,null,null,false,false);
+    let emoteFound = req.ret == 200 ? "**Exists**" : req.ret == 404 ? "_Doesn't Exist_" : "_Unknown (Error: "+req.ret+")_";
+    let emote = req.ret == 200;
+
+    let messageFound = "Unknown (requires read-channel-history for specific channel)";
+    let eventFound = "Unknown (requires view-events for specific server)";
+    let attachmentFound = "Unknown (requires channel id, message id, and exact file name)";
+
+    let role = rolePositions.has(snowflake)
+    let roleFound = role?"**Exists**":"_Unknown_"
+
+    let embed = {
+        // "author": {
+        //   "name": msg.d.author.user.username+"#"+msg.d.author.user.discriminator,
+        //   "icon_url": "https://cdn.discordapp.com/avatars/"+msg.d.author.user.id+"/"+msg.d.author.user.avatar+".png?size=4096"
+        // },
+        "title": "What-Is: "+snowflake,
+        "color": null,
+        "fields": [
+          {
+            "name": "Server",
+            "inline": true,
+            "value": guildFound //+ (guild?.name?': '+JSON.stringify(guild.name):"")
+          },
+          {
+            "name": "Channel",
+            "inline": true,
+            "value": channelFound //+ (channel?.name?': #'+channel.name:"")
+          },
+          {
+            "name": "User",
+            "inline": true,
+            "value": userFound + (user?.discriminator?': @'+user.username+"#"+user.discriminator:"")
+          },
+          {
+            "name": "Webhook",
+            "inline": true,
+            "value": webhookFound
+          },
+          {
+            "name": "Emote",
+            "inline": true,
+            "value": (emote?"[":"") + emoteFound + (emote?'](https://cdn.discordapp.com/emojis/'+snowflake+'.png?size=4096)':"")
+          },
+          {
+            "name": "Role",
+            "inline": true,
+            "value": roleFound
+          // },
+          // {
+          //   "name": "Message",
+          //   "inline": true,
+          //   "value": messageFound
+          // },
+          // {
+          //   "name": "Event",
+          //   "inline": true,
+          //   "value": eventFound
+          // },
+          // {
+          //   "name": "Attachment",
+          //   "inline": true,
+          //   "value": attachmentFound
+          }
+        ],
+        "footer": { "text": snowflake },
+        "timestamp": new Date(snowflakeToTime(snowflake)).toISOString()
+      }
+
+    replyToMessage(msg.d,{embeds:[embed]})
   }
 }
 
@@ -1866,6 +2133,8 @@ modules.boosters = {
     // Past me was wrong.
     // That returns: `{"message": "Bots cannot use this endpoint", "code": 20001}`
     // I guess *technically* you could hardcode to selfbot this...
+    // Relevant: https://github.com/discord/discord-api-docs/issues/1182
+    // Relevant: https://github.com/discord/discord-api-docs/discussions/3228
 
     let gid = msg.d.guild_id;
     let boosters = [...memberMap.get(gid).entries()].map(a=>a[1]).filter(a=>a.premium_since);
@@ -1906,7 +2175,7 @@ modules.listModules = {
 tempModules = {
   rss: null,
   createThread: null,
-  acceptDirectMessage: null,
+  directMessages: null,
   sendPregeneratedMessageSet: null
 }
 
@@ -1989,10 +2258,40 @@ tempModules.createThread = {
   }
 };
 
-tempModules.acceptDirectMessage = {
-  name: "temp_acceptDirectMessage",
+tempModules.directMessages = {
+  name: "temp_directMessages",
   onDispatch: (bot,msg) => {
     // check if new message is from dms or not.
+    if (msg.t !== "MESSAGE_CREATE")
+      return;
+    let m = tempModules.directMessages;
+    let uid = msg.d.author.id;
+    let isDm = !msg.d.guild_id;
+    if (isDm && !userDmMap.has(msg.d.channel_id)) {
+      discordRequest('channels/'+msg.d.channel_id).then(
+        res=>{
+          let channel = JSON.parse(res.res)
+          channelMap.set(channel.id,channel)
+        });
+    }
+
+    let command = commandAndPrefix(msg.d.content);
+    if (command && command.shift().toLowerCase() == "dmme") {
+      if (!userDmMap.has(uid)) {
+        discordRequest('users/@me/channels',{"recipient_id":uid}).then(
+          res=>{
+            let channel = JSON.parse(res.res);
+            channelMap.set(channel.id,channel)
+            userDmMap.set(uid,channel.id);
+            m.sendGreetings(uid);
+          });
+      } else {
+        m.sendGreetings(uid)
+      }
+    }
+  },
+  sendGreetings: (uid) => {
+    sendMessage(userDmMap.get(uid),"Hello!");
   }
 }
 
@@ -2028,6 +2327,66 @@ tempModules.sendPregeneratedMessageSet = {
   }
 }
 
+modules.webhookWatch = {
+  name: "webhookWatch",
+  webhookMap: new Map(), // gid -> {wid: wobj} // to be diffable
+  onDispatch: (bot,msg) => {
+    let m = modules.webhookWatch;
+    if (msg.t === "GUILD_CREATE") {
+      let gid = msg.d.id;
+      cq.add(cq.medium,()=>discordRequest("guilds/"+gid+"/webhooks")
+        .then(a=>{
+          _debug_webhooks=a;
+          if (a.ret != 200)
+            return console.error("Guild webhooks failed to load: "+gid);
+          let webhooksLoaded = JSON.parse(a.res);
+          m.webhookMap.set(gid,Object.fromEntries(webhooksLoaded.map(a=>[a.id,a]).sort()))
+        }));
+      cq.attempt();
+    }
+
+    // try {
+    //   let diffo = getDiffObj(threadMap.get(msg.d.id),msg.d)
+    //   let diffs = getDiffsFromDiffObj(diffo)
+    //   diffText = []
+    //   console.log(diffs)
+    //   diffs = diffs.filter(a=>{return modules.threadLogging.threadChangesToIgnore.indexOf(a[1].join("."))==-1})
+    //   diffs.forEach(a=>diffText.push(a[1].join('.')+" -> "+diffToText(getWithin(diffo,a[1]))))
+    //   diffText = "Attributes changed ("+diffs.length+"): \n> "+diffText.join("\n> ")
+    // } catch (e) {console.error("Diff failed:",e)}
+
+    if (msg.t !== "WEBHOOKS_UPDATE")
+      return;
+    if (Object.keys(msg.d).length==2 && msg.d.guild_id && msg.d.channel_id) {
+      let gid = msg.d.guild_id;
+
+      cq.add(cq.medium,()=>discordRequest("guilds/"+gid+"/webhooks").then(res=>{
+        let message = {embeds:[{color:5797096,title:"Webhooks Changed",
+              description:"A webhook was changed"+(msg.d.channel_id?" in <#"+msg.d.channel_id+">":"")+"."}]}
+        let diffText = "Unknown changes. See firework logs."
+        let original = m.webhookMap.get(gid);
+        let changed = Object.fromEntries(JSON.parse(res.res).map(a=>[a.id,a]).sort())
+        try {
+          let diffo = getDiffObj(original,changed)
+          let diffs = getDiffsFromDiffObj(diffo)
+          diffText = []
+          diffs = diffs.filter(a=>{return modules.threadLogging.threadChangesToIgnore.indexOf(a[1].join("."))==-1})
+          diffs.forEach(a=>diffText.push(a[1].join('.')+" -> "+diffToText(getWithin(diffo,a[1]))))
+          diffText = "Attributes changed ("+diffs.length+"): \n> "+diffText.join("\n> ")
+        } catch (e) {console.error("Diff failed:",e)}
+
+        message.embeds[0].description+="\n\n"+diffText;
+
+        if (modules.threadLogging.guildThreadLogChannels.has(msg.d.guild_id))
+          sendMessage(modules.threadLogging.guildThreadLogChannels.get(msg.d.guild_id),message).then(a=>console.log(a));
+
+        m.webhookMap.set(gid,changed);
+      }));
+      cq.attempt();
+    }
+  }
+}
+
 
 
 
@@ -2054,12 +2413,14 @@ if (!beta) {
   bot.addModule(modules.xp)
   bot.addModule(modules.saveLoad)
   bot.addModule(modules.whois)
-  bot.addModule(modules.boosters)
+  bot.addModule(modules.whatis) // WIP, but mostly done
+  bot.addModule(modules.boosters) // kinda broken atm
   bot.addModule(modules.listModules)
+  bot.addModule(modules.webhookWatch)
 
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
-  // bot.addModule(tempModules.acceptDirectMessage) //
+  // bot.addModule(tempModules.directMessages) //
   // bot.addModule(tempModules.sendPregeneratedMessageSet) //
 
   bot.modulesPre.push(modules.userMemoryPre);
@@ -2073,22 +2434,24 @@ if (beta) {
   // bot.addModule(modules.nop) //
   bot.addModule(modules.securityIssue)
   // bot.addModule(modules.joinMessages) //
-  // bot.addModule(modules.inviteLogging) //
+  bot.addModule(modules.inviteLogging) // required for some logic
   // bot.addModule(modules.disboardReminder) //
   // bot.addModule(modules.threadLogging) //
-  bot.addModule(modules.infoHelpUptime)
-  bot.addModule(modules.embeds)
-  // bot.addModule(modules.threadAlive)
-  // bot.addModule(modules.xp)
+  // bot.addModule(modules.infoHelpUptime)
+  // bot.addModule(modules.embeds)
+  // bot.addModule(modules.threadAlive) //
+  // bot.addModule(modules.xp) //
   bot.addModule(modules.saveLoad)
-  bot.addModule(modules.whois)
-  bot.addModule(modules.boosters)
+  // bot.addModule(modules.whois)
+  // bot.addModule(modules.whatis)
+  bot.addModule(modules.boosters) // broken atm
   bot.addModule(modules.listModules)
+  bot.addModule(modules.webhookWatch) // required for some logic
 
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
-  // bot.addModule(tempModules.acceptDirectMessage) //
   bot.addModule(tempModules.sendPregeneratedMessageSet)
+  bot.addModule(tempModules.directMessages) //
 
   bot.modulesPre.push(modules.userMemoryPre);
   bot.modulesPost.push(modules.userMemoryPost);
