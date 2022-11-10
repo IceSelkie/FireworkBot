@@ -16,7 +16,7 @@ const userXpMap = new Map();    // guild_id -> map<member_id,xpobj>
 const userDmMap = new Map();    // user_id -> channel_id
 var sents = []
 var beta = false; // sets which set of modules to use (prevents spam when debugging)
-var version = "v0.25.1"+(beta?" beta":"")
+var version = "v0.26.1"+(beta?" beta":"")
 
 // privilaged intents codes:
 //  w/o       w/
@@ -1038,8 +1038,10 @@ modules.userMemoryPost = {
 modules.joinMessages = {
   name: "joinMessages",
 
-  guildJoinChannels: new Map([["713127035156955276","713444513833680909"], //wofcs
-                              ]),
+  guildJoinChannels:  new Map([["713127035156955276","713444513833680909"]  //wofcs
+                               ]),
+  guildAuditChannels: new Map([["713127035156955276","750509276707160126"], //wofcs
+                               ]),
   messagesJoin: ['Please welcome {USER} to Pyrrhia!',
                  'Please welcome {USER} to Pantala!',
                  'Welcome to the dragons\' den, {USER}!',
@@ -1075,16 +1077,24 @@ modules.joinMessages = {
           timestamp: new Date(msg.time).toISOString(),
           color: 5767045,
           author: {
-            name: "A new FanWing has arrived!",
+            name: "A FanWing has arrived!",
             icon_url: "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".png?size=256"
           },
           description: modules.joinMessages.genJoinMessage(user),
-          fields: [{name: "Username",value: user.username+"#"+user.discriminator+" • <@"+user.id+">"},
-            {name:"Account Age",value: timeDuration(snowflakeToTime(user.id), msg.time,999)}],
+          fields: [
+            {name: "Username",value: user.username+"#"+user.discriminator+" • <@"+user.id+">"}
+          ],
           footer: {text:user.id}
         }]};
+
+      // Send with less data
       if (modules.joinMessages.guildJoinChannels.has(guild))
         sendMessage(modules.joinMessages.guildJoinChannels.get(guild),message).then(a=>console.log(a));
+      // Add data
+      message.embeds[0].fields.push({name:"Account Age",value: timeDuration(snowflakeToTime(user.id), msg.time,999)});
+      // Send with more data
+      if (modules.joinMessages.guildAuditChannels.has(guild))
+        sendMessage(modules.joinMessages.guildAuditChannels.get(guild),message).then(a=>console.log(a));
     }
     if (msg.t === "GUILD_MEMBER_REMOVE") {
       let user = msg.d.user; // {username,public_flags,id,discriminator,avatar}
@@ -1102,13 +1112,21 @@ modules.joinMessages = {
             icon_url: "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".png?size=256"
           },
           description: modules.joinMessages.genLeaveMessage(user),
-          fields: [{name: "Username",value: user.username+"#"+user.discriminator+" • <@"+user.id+">"},
-            {name:"Time On Server",value: timeDuration(Date.parse(member.joined_at),msg.time,999)},
-            {name:"Roles",value: member.roles.length==0?"none":"<@&"+member.roles.join("> <@&")+">"}],
+          fields: [
+            {name: "Username",value:user.username+"#"+user.discriminator+" • <@"+user.id+">"},
+          ],
           footer: {text:user.id}
         }]};
+
+      // Send with less data
       if (modules.joinMessages.guildJoinChannels.has(guild))
         sendMessage(modules.joinMessages.guildJoinChannels.get(guild),message).then(a=>console.log(a));
+      // Add data
+      message.embeds[0].fields.push({name:"Time On Server",value:timeDuration(Date.parse(member.joined_at),msg.time,999)})
+      message.embeds[0].fields.push({name:"Roles",value:member.roles.length==0?"none":"<@&"+member.roles.join("> <@&")+">"})
+      // Send with more data
+      if (modules.joinMessages.guildAuditChannels.has(guild))
+        sendMessage(modules.joinMessages.guildAuditChannels.get(guild),message).then(a=>console.log(a));
     }
   }
 }
