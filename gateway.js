@@ -1926,24 +1926,42 @@ modules.whois = {
     // if shares guild: roles + server online time
   },
   flagToBadgeEmotes: (flags,owner,nitro,boost) => {
-    flagBadges = 
+    
+    flagBadges =                                                  // From: https://flags.lewistehminerz.dev/
       [
-        "<:badge_discord_staff:1000072146657226872>",
-        "<:badge_partnered_server_owner:1000072164327837826>",
-        "<:badge_hypesquad_events:1000072160188059698>",
-        "<:badge_bug_hunter_level_1:1000072139770187878>", null, null,
-        "<:badge_house_bravery:1000072155448483880>",
-        "<:badge_house_brilliance:1000072158007005294>",
-        "<:badge_house_balance:1000072153103868045>",
-        "<:badge_early_supporter:1000072151191261215>",
-        "<:badge_team_pseudo_user:1000104098043011112>", /* ? */ null, null, null,
-        "<:badge_bug_hunter_level_2:1000072142337081364>", null,
-        "<:badge_verified_bot:1007791789794656317>", // custom made by me
-        "<:badge_early_bot_dev:1000072148829864007>",
-        "<:badge_community_moderator:1000072144119677018>",
-        "<:badge_supports_commands:1000072168576647358>", null, null,
-        "<:badge_active_developer:1040356836240531516>" // 1<<22
+        "<:badge_discord_staff:1000072146657226872>",             // DISCORD_EMPLOYEE
+        "<:badge_partnered_server_owner:1000072164327837826>",    // DISCORD_PARTNER
+        "<:badge_hypesquad_events:1000072160188059698>",          // HYPESQUAD_EVENTS
+        "<:badge_bug_hunter_level_1:1000072139770187878>",        // BUG_HUNTER_LEVEL_1
+        null, // undocumented                                       (MFA_SMS)
+        null, // undocumented                                       (PREMIUM_PROMO_DISMISSED)
+        "<:badge_house_bravery:1000072155448483880>",             // HOUSE_BRAVERY
+        "<:badge_house_brilliance:1000072158007005294>",          // HOUSE_BRILLIANCE
+        "<:badge_house_balance:1000072153103868045>",             // HOUSE_BALANCE
+        "<:badge_early_supporter:1000072151191261215>",           // EARLY_SUPPORTER
+        "<:badge_team_pseudo_user:1000104098043011112>",          // TEAM_PSEUDO_USER
+        null, // undocumented
+        null, // undocumented                                       (SYSTEM)
+        null, // undocumented                                       (HAS_UNREAD_URGENT_MESSAGES)
+        "<:badge_bug_hunter_level_2:1000072142337081364>",        // BUG_HUNTER_LEVEL_2
+        null, // undocumented
+        "<:badge_verified_bot:1007791789794656317>",//CustomEmoji // VERIFIED_BOT
+        "<:badge_early_bot_dev:1000072148829864007>",             // VERIFIED_BOT_DEVELOPER
+        "<:badge_community_moderator:1000072144119677018>",       // CERTIFIED_MODERATOR
+        "<:badge_supports_commands:1000072168576647358>",         // BOT_HTTP_INTERACTIONS
+        null, // undocumented                                       (SPAMMER)
+        null, // undocumented                                       (DISABLE_PREMIUM)
+        "<:badge_active_developer:1040356836240531516>" // 1<<22  // ACTIVE_DEVELOPER
       ];
+                                                            // 1<<33 HIGH_GLOBAL_RATE_LIMIT
+                                                            // 1<<34 DELETED
+                                                            // 1<<35 DISABLED_SUSPICIOUS_ACTIVITY
+                                                            // 1<<36 SELF_DELETED
+                                                            // 1<<37 PREMIUM_DISCRIMINATOR
+                                                            //
+                                                            // 1<<41 DISABLED
+                                                            //
+                                                            // 1<<44 QUARANTINED
     boostBadges = 
       {
          0: "",
