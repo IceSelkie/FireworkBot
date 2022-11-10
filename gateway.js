@@ -1941,7 +1941,8 @@ modules.whois = {
         "<:badge_verified_bot:1007791789794656317>", // custom made by me
         "<:badge_early_bot_dev:1000072148829864007>",
         "<:badge_community_moderator:1000072144119677018>",
-        "<:badge_supports_commands:1000072168576647358>"
+        "<:badge_supports_commands:1000072168576647358>", null, null,
+        "<:badge_active_developer:1040356836240531516>" // 1<<22
       ];
     boostBadges = 
       {
@@ -2019,6 +2020,8 @@ modules.whatis = {
         break;  default: userFound = "_Unknown (Error: "+req.ret+")_";
       }
     }
+
+    // Webhook
     let webhook = modules.webhookWatch.webhookMap?.get(msg.d.guild_id)?.[snowflake];
     let webhookFound = webhook?"**Found**":"_Unknown_"
     if (!webhook) {
@@ -2038,7 +2041,9 @@ modules.whatis = {
         break;  default: webhookFound = "_Unknown (Error: "+req.ret+")_";
       }
     }
-    let guild = null;//guildMap?.get(snowflake);
+
+    // Guild
+    let guild = !!guildOwnerMap.get(snowflake);//guildMap?.get(snowflake);
     let guildFound = guild?"**Found**":"_Unknown_"
     if (!guild) {
       let req = await discordRequest('guilds/'+snowflake+'/emojis')
@@ -2049,6 +2054,8 @@ modules.whatis = {
         break;  default: guildFound = "_Unknown (Error: "+req.ret+")_";
       }
     }
+
+    // Channel
     let channel = channelMap.get(snowflake);
     let channelFound = channel?"**Found**":"Unknown"
     if (!channel) {
@@ -2060,14 +2067,44 @@ modules.whatis = {
         break;  default: channelFound = "_Unknown (Error: "+req.ret+")_";
       }
     }
-    let req = await discordRequest('https://cdn.discordapp.com/emojis/'+snowflake+'.webp?size=16',null,null,null,false,false);
-    let emoteFound = req.ret == 200 ? "**Exists**" : req.ret == 404 ? "_Doesn't Exist_" : "_Unknown (Error: "+req.ret+")_";
-    let emote = req.ret == 200;
 
+    // Application
+    let application = null;
+    let applicationFound = application?"**Found**":"_Unknown_"
+    if (!application) {
+      let req = await discordRequest('applications/'+snowflake+'/commands/160123456789012345')
+      switch (req.ret) {
+               case 404: applicationFound = "_Doesn't Exist_";
+        break; case 403: applicationFound = "**Exists**";
+        break; case 200: applicationFound = "**Found**";
+        break;  default: webhookFound = "_Unknown (Error: "+req.ret+")_";
+      }
+    }
+
+    // Emote
+    let emote = null;
+    let emoteFound = "_Unknown_";
+    if (!emote) {
+      let req = await discordRequest('https://cdn.discordapp.com/emojis/'+snowflake+'.webp?size=16',null,null,null,false,false);
+      emoteFound = req.ret == 200 ? "**Exists**" : req.ret == 404 ? "_Doesn't Exist_" : "_Unknown (Error: "+req.ret+")_";
+      emote = req.ret == 200;
+    }
+
+    //Sticker
+    let sticker = null;
+    let stickerFound = "_Unknown_";
+    if (!sticker){
+      let req = await discordRequest('https://media.discordapp.net/stickers/'+snowflake+'.webp?size=16&passthrough=false',null,null,null,false,false);
+      stickerFound = req.ret == 200 ? "**Exists**" : req.ret == 404 ? "_Doesn't Exist_" : "_Unknown (Error: "+req.ret+")_";
+      sticker = req.ret == 200;
+    }
+
+    // Message
     let messageFound = "Unknown (requires read-channel-history for specific channel)";
     let eventFound = "Unknown (requires view-events for specific server)";
     let attachmentFound = "Unknown (requires channel id, message id, and exact file name)";
 
+    // Role
     let role = rolePositions.has(snowflake)
     let roleFound = role?"**Exists**":"_Unknown_"
 
@@ -2105,9 +2142,19 @@ modules.whatis = {
             "value": (emote?"[":"") + emoteFound + (emote?'](https://cdn.discordapp.com/emojis/'+snowflake+'.png?size=4096)':"")
           },
           {
-            "name": "Role",
+            "name": "Sticker",
             "inline": true,
-            "value": roleFound
+            "value": (sticker?"[":"") + stickerFound + (sticker?'](https://cdn.discordapp.com/stickers/'+snowflake+'.png?size=4096)':"")
+          },
+          {
+            "name": "Application",
+            "inline": true,
+            "value": applicationFound
+          // },
+          // {
+          //   "name": "Role",
+          //   "inline": true,
+          //   "value": roleFound
           // },
           // {
           //   "name": "Message",
