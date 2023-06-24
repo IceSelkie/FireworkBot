@@ -475,6 +475,10 @@ class Bot {
       fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+".json",JSON.stringify(this.contacts));
     else {
       for (let i=0; i<this.contacts.length; i+=division_size) {
+        if (bot.heartbeatShouldBeRunning)
+          this.heartbeatForce;
+
+        // TODO: don't repeat ones that have already been saved.
         fs.writeFileSync(
             "contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length
               +"-part"+((i).toString().padStart(strlen,"0"))+".json",
@@ -1894,17 +1898,22 @@ modules.saveLoad = {
 
     let first = command.shift()
     if (first === "save") {
-      save()
-      replyToMessage(msg.d,"Save attempted.")
+      replyToMessage(msg.d,"Starting save...").then(a=>{
+        save()
+        replyToMessage(msg.d,"Save complete.")
+      })
     }
     if (first === "load") {
-      load()
-      replyToMessage(msg.d,"Load attempted.")
+      replyToMessage(msg.d,"Starting load...").then(a=>{
+        load()
+        replyToMessage(msg.d,"Load attempted.")
+      })
     }
     if (first === "dump") {
-      replyToMessage(msg.d,"Attempting to dump bot contents for troubleshooting...\nThis will also save config and database to file.\nThis may cause a crash if bot is unstable.")
-      bot.cleanup()
-      replyToMessage(msg.d,"Bot didn't crash. Will assume dump was successful.")
+      replyToMessage(msg.d,"Attempting to dump bot contents for troubleshooting...\nThis will also save config and database to file.\nThis may cause a crash if bot is unstable.").then(a=>{
+        bot.cleanup()
+        replyToMessage(msg.d,"Bot didn't crash. Will assume dump was successful.")
+      })
     }
   }
 }
