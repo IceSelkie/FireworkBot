@@ -907,7 +907,7 @@ function timeDuration (start, end) {
 }
 
 function snowflakeToTime(snowflake) {
-  return Number(BigInt(snowflake)/4194304n+1420070400000n);
+  return snowflake?Number(BigInt(snowflake)/4194304n+1420070400000n):snowflake;
 }
 
 function timeToSnowflake(time) {
