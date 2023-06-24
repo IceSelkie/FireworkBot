@@ -1,22 +1,24 @@
-const WebSocket = require("ws").WebSocket;
-const https = require("https");
-const fs = require("fs");
-const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("gateway_static/token.json").toString())).token}};
-const heartbeatUpdateInterval = 500;
-const reconnectInterval = 4000;
-const userMap = new Map();      // user_id -> user_obj
-const memberMap = new Map();    // guild_id -> map<member_id,members> (contains roles+nick+boost+mute)
-const channelMap = new Map();   // channel_id -> channel_obj
-const threadMap = new Map();    // thread_id -> thread_obj
-const guildNameMap = new Map(); // guild_id -> string
-const guildOwnerMap = new Map() // guild_id -> user_id
-const rolePositions = new Map();// role_id -> number (used to sort role orders when user leaves)
-const userXpMap = new Map();    // guild_id -> map<member_id,xpobj>
+var WebSocket = require("ws").WebSocket;
+var https = require("https");
+var fs = require("fs");
+var identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("gateway_static/token.json").toString())).token}};
+var heartbeatUpdateInterval = 500;
+var reconnectInterval = 4000;
+var userMap = new Map();      // user_id -> user_obj
+var activityMap = new Map();  // user_id -> map<timestamp,customStatus/Activity>
+var memberMap = new Map();    // guild_id -> map<member_id,members> (contains roles+nick+boost+mute)
+var channelMap = new Map();   // channel_id -> channel_obj
+var threadMap = new Map();    // thread_id -> thread_obj
+var guildNameMap = new Map(); // guild_id -> string
+var guildOwnerMap = new Map() // guild_id -> user_id
+var rolePositions = new Map();// role_id -> number (used to sort role orders when user leaves)
+var userXpMap = new Map();    // guild_id -> map<member_id,xpobj>
                                 //         xpobj := {xp:int,lvl:int,lastxptime:time,message_count:int}
-const userDmMap = new Map();    // user_id -> channel_id
-var sents = []
+var userDmMap = new Map();    // user_id -> channel_id
+var sents = [];
+var dumpcatch = null;
 var beta = false; // sets which set of modules to use (prevents spam when debugging)
-var version = "v0.26.1"+(beta?" beta":"")
+var version = "v"(beta?"BETA":"")"0.28."
 
 // privilaged intents codes:
 //  w/o       w/
@@ -25,26 +27,29 @@ var version = "v0.26.1"+(beta?" beta":"")
 // avatars: https://cdn.discordapp.com/avatars/{uid}/{avatar_hash}.png?size=4096
 
 
-const g_wofcs = "713127035156955276"
+var g_hyec = "336394315041341463"
+var g_wofcs = "713127035156955276"
+var g_sup = "837532153344294972"
+var g_tws = "858140715448139837"
 
-const c_dm = "870868315793391686"
-const c_fire = "870500800613470248" // firework-playground
+var c_dm = "870868315793391686"
+var c_fire = "870500800613470248" // firework-playground
 
-const u_selk = "163718745888522241"
-const u_syz = "642971818965073931"
-const u_gacek = "488383281935548436"
+var u_selk = "163718745888522241"
+var u_syz = "642971818965073931"
+var u_gacek = "488383281935548436"
 
-const r_mod = "724461190897729596"
-const r_modling = "739602680653021274"
-const r_botwing = "713510512150839347"
+var r_mod = "724461190897729596"
+var r_modling = "739602680653021274"
+var r_botwing = "713510512150839347"
 
-const SNOWFLAKE_ONE_MONTH = "11234023833600000" // 17 digits starts with 11
-                //  oldest: "49230618424246272" // 17 digits starts with 49
-                //     me: "163718745888522241" // 18 digits starts with 16
-                //  2022: "1000000000000000000" // 19 digits
+var SNOWFLAKE_ONE_MONTH = "11234023833600000" // 17 digits starts with 11
+              //  oldest: "49230618424246272" // 17 digits starts with 49
+              //     me: "163718745888522241" // 18 digits starts with 16
+              //  2022: "1000000000000000000" // 19 digits
 
 
-const dispatchTypes = [  // GUILDS (1 << 0)
+var dispatchTypes = [  // GUILDS (1 << 0)
   "GUILD_CREATE", "GUILD_UPDATE", "GUILD_DELETE", "GUILD_ROLE_CREATE", "GUILD_ROLE_UPDATE", "GUILD_ROLE_DELETE",
   "CHANNEL_CREATE", "CHANNEL_UPDATE", "CHANNEL_DELETE", "CHANNEL_PINS_UPDATE", "THREAD_CREATE", "THREAD_UPDATE",
   "THREAD_DELETE", "THREAD_LIST_SYNC", "THREAD_MEMBER_UPDATE", "THREAD_MEMBERS_UPDATE"/* * */, "STAGE_INSTANCE_CREATE",
@@ -82,73 +87,78 @@ const dispatchTypes = [  // GUILDS (1 << 0)
   "GUILD_SCHEDULED_EVENT_USER_ADD", "GUILD_SCHEDULED_EVENT_USER_REMOVE"
 ]
 
+// Guild Tags: CLYDE_EXPERIMENT_ENABLED COMMUNITY SUMMARIES_ENABLED_GA SUMMARIES_ENABLED SHARED_CANVAS_FRIENDS_AND_FAMILY_TEST PARTNERED INTERNAL_EMPLOYEE_ONLY
 
-const oldlog = console.log;
-console.log=(a,b,c,d)=>{
-  if (d!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b,c,d);
-  else if (c!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b,c);
-  else if (b!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b);
-  else oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a);}
-const olderr = console.error;
-console.error=(a,b,c,d)=>{
-  if (d!==undefined) olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a,b,c,d);
-  else if (d!==undefined) olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a,b,c);
-  else if (d!==undefined) olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a,b);
-  else olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a);}
+
+if (!console.isChangedBySelkie) {
+  const oldlog = console.log;
+  console.log=(a,b,c,d)=>{
+    if (d!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b,c,d);
+    else if (c!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b,c);
+    else if (b!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b);
+    else oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a);}
+  const olderr = console.error;
+  console.error=(a,b,c,d)=>{
+    if (d!==undefined) olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a,b,c,d);
+    else if (d!==undefined) olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a,b,c);
+    else if (d!==undefined) olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a,b);
+    else olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a);}
+  console.isChangedBySelkie = true;
+}
 
 
 var config = null;
-load = function() {
+load = function(path = "gateway_data") {
   // Typically Unchanging
-  config = JSON.parse(fs.readFileSync("gateway_data/config.json"));
+  config = JSON.parse(fs.readFileSync(path+"/config.json"));
   config.threadAlive = new Set(config.threadAlive);
   console.log("Config loaded.")
 
   // Load data that typically changes
-  if (fs.existsSync("gateway_data/threadMap.json")) {
-    let data = JSON.parse(fs.readFileSync("gateway_data/threadMap.json"));
+  if (fs.existsSync(path+"/threadMap.json")) {
+    let data = JSON.parse(fs.readFileSync(path+"/threadMap.json"));
     Object.entries(data).forEach(a=>threadMap.set(a[0],a[1]));
     console.log("Thread Map loaded.")
   } else console.error("Data threadMap JSON doesnt exist! Cannot read the Data That Typically Changes!");
 
-  if (fs.existsSync("gateway_data/userXpMap.json")) {
-    let data = JSON.parse(fs.readFileSync("gateway_data/userXpMap.json"));
+  if (fs.existsSync(path+"/userXpMap.json")) {
+    let data = JSON.parse(fs.readFileSync(path+"/userXpMap.json"));
     userXpMap.clear();
     Object.entries(data).forEach(a=>userXpMap.set(a[0],new Map(Object.entries(a[1]))));
     console.log("XP Map loaded.")
   } else console.error("Data userXpMap JSON doesnt exist! Cannot read the Data That Typically Changes!");
 
-  if (fs.existsSync("gateway_data/userDmMap.json")) {
-    let data = JSON.parse(fs.readFileSync("gateway_data/userDmMap.json"));
+  if (fs.existsSync(path+"/userDmMap.json")) {
+    let data = JSON.parse(fs.readFileSync(path+"/userDmMap.json"));
     userDmMap.clear();
     Object.entries(data).forEach(a=>userDmMap.set(a[0],a[1]));
     console.log("DM Map loaded.")
   } else console.error("Data userDmMap JSON doesnt exist! Cannot read the Data That Typically Changes!");
 }
-save = function() {
+save = function(path = "gateway_data") {
     // Typically Unchanging
   try {
     config.threadAlive = [...config.threadAlive].sort();
-    fs.writeFileSync("gateway_data/config.json", JSON.stringify(config,null,2));
+    fs.writeFileSync(path+"/config.json", JSON.stringify(config,null,2));
     config.threadAlive = new Set(config.threadAlive);
     console.log("Config saved.");
   } catch (e) {console.error(e)}
 
     // Data that typically changes
   try {
-    fs.writeFileSync("gateway_data/threadMap.json",JSON.stringify((
+    fs.writeFileSync(path+"/threadMap.json",JSON.stringify((
         Object.fromEntries([...threadMap.entries()].sort()) // sort by thread id oldest to newest
       ),null,2));
     console.log("Thread Map saved.");
   } catch (e) {console.error(e)}
   try {
-    fs.writeFileSync("gateway_data/userXpMap.json",JSON.stringify((
+    fs.writeFileSync(path+"/userXpMap.json",JSON.stringify((
         Object.fromEntries([...userXpMap.entries()].map(a=>[a[0],Object.fromEntries(a[1])]))
       ),null,2));
     console.log("XP Map saved.");
   } catch (e) {console.error(e)}
   try {
-    fs.writeFileSync("gateway_data/userDmMap.json",JSON.stringify((
+    fs.writeFileSync(path+"/userDmMap.json",JSON.stringify((
         Object.fromEntries([...userDmMap.entries()].sort((a,b)=>Number(a)-Number(b)))
       ),null,2))
     console.log("DM Map saved.");
@@ -170,7 +180,7 @@ var cq = {
 };
   cq.queue = new Map(cq.priorities.map(a=>[a,[]]));
 
-
+if (!console.boxClassCreated) {
 class Bot {
   constructor() {
     this.ws = null;
@@ -460,7 +470,9 @@ go = function() {
   bot.start();
   setTimeout(()=>{bot.setStatus("Ice Selkie ✿#4064 code the Firework Bot!");}, 2000);
 }
+console.boxClassCreated = true;
 bot = new Bot();
+}
 
 
 
@@ -2533,9 +2545,10 @@ if (beta) {
 
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
-  bot.addModule(tempModules.sendPregeneratedMessageSet)
   bot.addModule(tempModules.directMessages) //
+  // bot.addModule(tempModules.sendPregeneratedMessageSet) //
 
   bot.modulesPre.push(modules.userMemoryPre);
   bot.modulesPost.push(modules.userMemoryPost);
 }
+console.log("Gateway.js Loaded!")
