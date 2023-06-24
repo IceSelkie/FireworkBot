@@ -429,11 +429,23 @@ class Bot {
     oldlog(timeDuration(this.timeStart,this.contacts[this.contacts.length-1].time));
     oldlog(new Date(this.contacts[this.contacts.length-1].time));
     oldlog(this.contacts.length/1000);
-    fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+".json",JSON.stringify(this.contacts));
-    fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+"-sents.json",JSON.stringify(sents));
+    save()
     oldlog(version);
 
-    save()
+    let division_size = 500e3;
+    let strlen = (this.contacts.length).toString().length;
+    fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+"-sents.json",JSON.stringify(sents));
+    if (this.contacts.length <= division_size) 
+      fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+".json",JSON.stringify(this.contacts));
+    else {
+      for (let i=0; i<this.contacts.length; i+=division_size) {
+        fs.writeFileSync(
+            "contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length
+              +"-part"+((i).toString().padStart(strlen,"0"))+".json",
+            JSON.stringify(this.contacts.slice(i,i+division_size)));
+      }
+    }
+    oldlog("Saving logs done.");
   }
 
 
