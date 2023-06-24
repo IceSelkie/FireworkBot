@@ -491,7 +491,7 @@ bot = new Bot();
 // const heartbeatUpdateInterval = 500;
 
 
-var multipartboundary = "boundary"
+var multipartboundary = "boundary" + (Buffer.from("("+ +new Date()+")",'utf-8').toString("base64"))
 function discordRequest(path, data=null, method=null, attachments=null, isText=true, useToken=true) {
   if (path == undefined) {
     return 'function discordRequest(path, data=null, method=null="GET", attachments=null, isText=true, useToken=true)\n'+
@@ -500,13 +500,13 @@ function discordRequest(path, data=null, method=null, attachments=null, isText=t
     'method="null/GET/POST/PUT/DELETE/etc"\n'+
     'attachments="../firework_pfp.png"\n'+
     '    or {filename?:"unknown.txt",mime?:"text/plain",path:"/path/to/file"}\n'+
-    '    or {filename?:"pfp.png",mime?:"image/png",data:"not an image"}\n'+
-    '    or [{},{},"",{}] of above\n'+
+    '    or {filename?:"pfp.png",mime?:"image/png",data:<raw-data>}\n'+
+    '    or array of above (up to 10)\n'+
     'isText=true -> utf8 text -> returned.res will be string\n'+
     '    otherwise, isText=false -> returned.res will be Buffer of raw bytes\n'+
     'useToken=true -> uses authorization header or not in request. Discord API needs. Everywhere else will leak bot token.\n'+
     '\n'+
-    'var multipartboundary = "boundary" for "multipart/form-data" boundaries.\n'+
+    'var multipartboundary = '+JSON.stringify(multipartboundary)+' for "multipart/form-data" boundaries.\n'+
     '    If "--boundary" will occur in payload, change this var.';
   }
   // console.log("Discord Request called with path of:")
@@ -567,7 +567,7 @@ function discordRequest(path, data=null, method=null, attachments=null, isText=t
         // att can be file name -> get file and upload it
         //   "/path/to/file"
         // or raw data -> upload the data
-        //   {filename:"file.txt",mime:"text/plain",data:"rawdata"||file:"/path/to/file"}
+        //   {filename:"file.txt",mime:"text/plain",data:<raw-data>||file:"/path/to/file"}
         // URL to reupload not accepted, since that would require this to be async.
         if (typeof att === "string") {
             att = {file:att}
@@ -730,6 +730,51 @@ function mimelookup(ext) {
   // Text only. No binary.
   return 'text/plain'
 }
+
+/**
+ * Discord CDN uri -> buffer
+ */
+function downloadFile(uri) {
+  return new Promise((resolve,reject)=>{
+    discordRequest(uri,null,"GET",null,false,false).then(a=>resolve(a.res),e=>reject(e))
+  })
+
+  // /**
+  //  * Downloads a file from a discord cdn, returning the path to the file as a string.
+  //  * Buckets specify where to retain the files. Null or undefined implies temp file.
+  //  * Files in the temp folder will be cleared on occasion, after some time has passed.
+  //  * Buckets only allow alphanumeric, dash, underscore, and / for subfolders.
+  //  * 
+  //  * eg downloadFile("url/to/avatar.png", "avatars", "163718745888522241_3bb5bfa826fa59167533f6380127d59e.png")
+  //  */
+  // // If already downloaded, return that path
+  // bucket = "./"+(("/"+(bucket||"temp")+"/").replaceAll(/[^-/_a-zA-Z0-9]/g,"").replaceAll(/\/+/g,"/").toLowerCase().substring(1)||"temp/")
+  // fs.mkdirSync(bucket, { recursive: true })
+  // // if (fs.existsSync(bucket+hash(uri)))
+  // //   return hash(uri)
+
+  // // Else, ensure destination exists
+
+  // // download it
+  // // return the path to it
+  // return;
+}
+function downloadFiles(uris) {
+  return new Promise((resolve,reject)=>{
+    let ret = uris.map(a=>undefined);
+    uris.forEach((uri,i)=>downloadFile(uri).then(dat=>{
+      ret[i]=dat;
+      if (ret.filter(a=>!a).length===0)
+        resolve(ret);
+    }));
+    if (uris.length==0)
+      resolve(ret)
+  })
+}
+
+
+
+
 
 var parseCommandRegex = null
 function parseCommandToArgs(input) {
