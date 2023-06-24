@@ -203,6 +203,8 @@ class Bot {
     this.plannedMessages = []; // heap of messages to be sent; tags of when to send and if late messages okay.
     this.timeStart = Date.now();
     this.timeLastReconnect = null;
+    // If true, do not send messages.
+    this.silent = false;
 
     try {
       let data = fs.readFileSync("gateway_data/firework_config.json").toString();
@@ -707,8 +709,11 @@ async function sendMessage(channel_id, message_object) {
     }
     return ret;
   }
-  else
-    return discordRequest("channels/"+channel_id+"/messages",JSON.stringify(message_object));
+  else {
+    if (!bot.silent)
+      return discordRequest("channels/"+channel_id+"/messages",JSON.stringify(message_object));
+    return new Promise((resolve,reject)=>resolve({res:null,ret:"silent"}));
+  }
 }
 
 replyToMessage = async function(original, message_object) {
