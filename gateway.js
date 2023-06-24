@@ -2257,7 +2257,7 @@ modules.whatis = {
           {
             "name": "User",
             "inline": true,
-            "value": userFound + (user?.discriminator?': @'+user.username+"#"+user.discriminator:"")
+            "value": userFound + (user?.username?': @'+user.username+"#"+user.discriminator:"")
           },
           {
             "name": "Webhook",
