@@ -227,6 +227,19 @@ class Bot {
       console.log("Failed to send. Connection is dead.")
   }
 
+  heartbeatForce = function() {
+    this.lastHeartbeat = 0;
+    this.heartbeat();
+
+    let wasRunning = this.heartbeatShouldBeRunning;
+
+    this.heartbeatShouldBeRunning = false;
+    setTimeout(()=>{
+      this.heartbeatShouldBeRunning = wasRunning;
+      this.heartbeat()
+    },1000);
+  }
+
   // Occasionally a double heartbeat gets generated with 2 threads running with the same id or something...
   heartbeat = function() {
     if (!this.connectionAlive) {
@@ -248,6 +261,26 @@ class Bot {
     }
     setTimeout(()=>this.heartbeat(),500);
     try{cq.attempt()}catch{}
+
+    // save data on occasion
+    try{
+      if (this.contacts.length%100000 == 0 && this.contacts.length>0) {
+
+        sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
+            "Saving contacts #"+(this.contacts.length/100000)+"..."
+          );
+        this.heartbeatForce();
+        this.cleanup();
+        sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
+            "Contacts saved."
+          );
+      }
+    }catch (e) {
+      sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
+          "Try-Catch catch ran in scheduled save. Crash prevented, and error stored in global variable `dumpcatch`..."
+        );
+      dumpcatch = e;
+    }
   }
 
   hasInterest = function(string) {
@@ -361,6 +394,9 @@ class Bot {
 
     // Hello -> Set Heartbeat Interval
     if (message.op === 10) {
+      console.log("Received message (none/hello)");
+      console.log(message)
+
       thiss.interval = message.d.heartbeat_interval;
 
       if (thiss.heartbeatShouldBeRunning)
