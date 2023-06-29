@@ -18,7 +18,7 @@ var userDmMap = new Map();    // user_id -> channel_id
 var sents = [];
 var dumpcatch = null;
 var beta = false; // sets which set of modules to use (prevents spam when debugging)
-var version = "v"(beta?"BETA":"")"0.28."
+var version = "v"+(beta?"BETA":"")+"0.29."
 
 // privilaged intents codes:
 //  w/o       w/
@@ -90,7 +90,7 @@ var dispatchTypes = [  // GUILDS (1 << 0)
 // Guild Tags: CLYDE_EXPERIMENT_ENABLED COMMUNITY SUMMARIES_ENABLED_GA SUMMARIES_ENABLED SHARED_CANVAS_FRIENDS_AND_FAMILY_TEST PARTNERED INTERNAL_EMPLOYEE_ONLY
 
 
-if (!console.isChangedBySelkie) {
+// if (!console.isChangedBySelkie) {
   const oldlog = console.log;
   console.log=(a,b,c,d)=>{
     if (d!==undefined) oldlog("INF["+new Date().toISOString().substring(11,19)+"]",a,b,c,d);
@@ -104,7 +104,7 @@ if (!console.isChangedBySelkie) {
     else if (d!==undefined) olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a,b);
     else olderr("ERR["+new Date().toISOString().substring(11,19)+"]",a);}
   console.isChangedBySelkie = true;
-}
+// }
 
 
 var config = null;
@@ -180,7 +180,7 @@ var cq = {
 };
   cq.queue = new Map(cq.priorities.map(a=>[a,[]]));
 
-if (!console.boxClassCreated) {
+// if (!console.boxClassCreated) {
 class Bot {
   constructor() {
     this.ws = null;
@@ -203,6 +203,8 @@ class Bot {
     this.plannedMessages = []; // heap of messages to be sent; tags of when to send and if late messages okay.
     this.timeStart = Date.now();
     this.timeLastReconnect = null;
+    this.isSaving = false; // If currently in the saving loop (prevent multiple heartbeat threads from saving at the same time)
+    this.lastSavedChunk = 0; // Keep track of last set of contacts saved to prevent writing gigabytes at a time.
     // If true, do not send messages.
     this.silent = false;
 
@@ -264,22 +266,25 @@ class Bot {
 
     // save data on occasion
     try{
-      if (this.contacts.length%100000 == 0 && this.contacts.length>0) {
-
+      if (this.contacts.length%100000 == 0 && this.contacts.length>0 && !this.isSaving) {
+        this.isSaving = true;
         sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
             "Saving contacts #"+(this.contacts.length/100000)+"..."
           );
         this.heartbeatForce();
         this.cleanup();
+        this.heartbeatForce();
         sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
             "Contacts saved."
           );
+        this.isSaving = false;
       }
     }catch (e) {
       sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
           "Try-Catch catch ran in scheduled save. Crash prevented, and error stored in global variable `dumpcatch`..."
         );
       dumpcatch = e;
+      this.isSaving = false;
     }
   }
 
@@ -470,19 +475,24 @@ class Bot {
 
     let division_size = 500e3;
     let strlen = (this.contacts.length).toString().length;
+    
+    // Write sents:
     fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+"-sents.json",JSON.stringify(sents));
+
+    // Write contacts:
     if (this.contacts.length <= division_size) 
       fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+".json",JSON.stringify(this.contacts));
     else {
       for (let i=0; i<this.contacts.length; i+=division_size) {
-        if (bot.heartbeatShouldBeRunning)
-          this.heartbeatForce;
-
-        // TODO: don't repeat ones that have already been saved.
-        fs.writeFileSync(
-            "contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length
-              +"-part"+((i).toString().padStart(strlen,"0"))+".json",
-            JSON.stringify(this.contacts.slice(i,i+division_size)));
+        // don't repeat old chunks that have already been saved.
+        if (i>=this.lastSavedChunk) {
+          fs.writeFileSync(
+              "contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length
+                +"-part"+((i).toString().padStart(strlen,"0"))+".json",
+              JSON.stringify(this.contacts.slice(i,i+division_size)));
+          // lastSavedChunk will be a multiple of 500e3, will only increment if saving past the 500e3 block.
+          this.lastSavedChunk = i;
+        }
       }
     }
     oldlog("Saving logs done.");
@@ -524,9 +534,9 @@ go = function() {
   bot.start();
   setTimeout(()=>{bot.setStatus("Ice Selkie ✿#4064 code the Firework Bot!");}, 2000);
 }
-console.boxClassCreated = true;
+// console.boxClassCreated = true;
 bot = new Bot();
-}
+// }
 
 
 
