@@ -2,13 +2,17 @@ var WebSocket = require("ws").WebSocket;
 var https = require("https");
 var fs = require("fs");
 var identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("gateway_static/token.json").toString())).token}};
-var heartbeatUpdateInterval = 500;
+var currentGatewayUrl = 'wss://gateway.discord.gg';
+var heartbeatThreadingInterval = 500;
 var reconnectInterval = 4000;
+var occasionalSaveSize = 100000;
+var lastSaveSize = 0;
 var userMap = new Map();      // user_id -> user_obj
 var activityMap = new Map();  // user_id -> map<timestamp,customStatus/Activity>
 var memberMap = new Map();    // guild_id -> map<member_id,members> (contains roles+nick+boost+mute)
 var channelMap = new Map();   // channel_id -> channel_obj
 var threadMap = new Map();    // thread_id -> thread_obj
+var channelToGuildMap = new Map();   // channel_id -> guild_id
 var guildNameMap = new Map(); // guild_id -> string
 var guildOwnerMap = new Map() // guild_id -> user_id
 var rolePositions = new Map();// role_id -> number (used to sort role orders when user leaves)
@@ -16,19 +20,20 @@ var userXpMap = new Map();    // guild_id -> map<member_id,xpobj>
                                 //         xpobj := {xp:int,lvl:int,lastxptime:time,message_count:int}
 var userDmMap = new Map();    // user_id -> channel_id
 var sents = [];
-var dumpcatch = null;
+var SAVECRASHCATCHDUMP = null;
+var FORCE_OCCASIONAL_SAVE = false;
 var beta = false; // sets which set of modules to use (prevents spam when debugging)
-var version = "v"+(beta?"BETA":"")+"0.29."
+var version = (beta?'β':'v')+'1.37.';
 
 // privilaged intents codes:
 //  w/o       w/
-// 32509    32767
+// 32509    53608447
 
 // avatars: https://cdn.discordapp.com/avatars/{uid}/{avatar_hash}.png?size=4096
 
 
 var g_hyec = "336394315041341463"
-var g_wofcs = "713127035156955276"
+var g_wofcs= "713127035156955276"
 var g_sup = "837532153344294972"
 var g_tws = "858140715448139837"
 
@@ -47,6 +52,7 @@ var SNOWFLAKE_ONE_MONTH = "11234023833600000" // 17 digits starts with 11
               //  oldest: "49230618424246272" // 17 digits starts with 49
               //     me: "163718745888522241" // 18 digits starts with 16
               //  2022: "1000000000000000000" // 19 digits
+              //  2024: ~12
 
 
 var dispatchTypes = [  // GUILDS (1 << 0)
@@ -106,6 +112,20 @@ var dispatchTypes = [  // GUILDS (1 << 0)
   console.isChangedBySelkie = true;
 // }
 
+const isArray = a=>a instanceof Array;
+const isBool = a=>(typeof a) == "boolean";
+const isNumber = a=>!isNaN(a);
+const isNumGE1 = a=>isNumber(a)&& a>=1;
+const isInteger = a=>isNumber(a) && a%1===0;
+const isDuration = a=>isNumber(a) && a>=0;
+const isIntegerGE_1 = a=> isInteger(a) && a>=-1;
+const isEnum=(allowedTypes) => (a)=>allowedTypes.includes(a);
+const enforceSnowflakeArray = [isArray, a=>a.map(a=>BigInt(a)).filter(a=>a>SNOWFLAKE_ONE_MONTH).map(a=>a.toString())];
+const enforceBool = [isBool, a=>!!a];
+const enforceNonNegative = [isNumber, a=>a<0?0:a];
+const enforceNullableNatural = [a=>a===null||(isNumber(a)&&(a%1==0)&&(a>=-1)), a=>a==-1?null:a];
+const enforceDuration = [isNumber, a=>a-(a%1)];
+const enforceEnumBuilder=(allowedTypes)=> [a=>allowedTypes.includes(a), a=>a];
 
 var config = null;
 load = function(path = "gateway_data") {
@@ -119,21 +139,35 @@ load = function(path = "gateway_data") {
     let data = JSON.parse(fs.readFileSync(path+"/threadMap.json"));
     Object.entries(data).forEach(a=>threadMap.set(a[0],a[1]));
     console.log("Thread Map loaded.")
-  } else console.error("Data threadMap JSON doesnt exist! Cannot read the Data That Typically Changes!");
+  } else console.error("Data 'threadMap' JSON doesnt exist! Cannot read the Data That Typically Changes!");
 
   if (fs.existsSync(path+"/userXpMap.json")) {
     let data = JSON.parse(fs.readFileSync(path+"/userXpMap.json"));
     userXpMap.clear();
     Object.entries(data).forEach(a=>userXpMap.set(a[0],new Map(Object.entries(a[1]))));
-    console.log("XP Map loaded.")
-  } else console.error("Data userXpMap JSON doesnt exist! Cannot read the Data That Typically Changes!");
+    console.log("Old XP Map loaded.")
+  } else console.error("Data 'userXpMap' JSON doesnt exist! Cannot read the Data That Typically Changes!");
 
   if (fs.existsSync(path+"/userDmMap.json")) {
     let data = JSON.parse(fs.readFileSync(path+"/userDmMap.json"));
     userDmMap.clear();
     Object.entries(data).forEach(a=>userDmMap.set(a[0],a[1]));
     console.log("DM Map loaded.")
-  } else console.error("Data userDmMap JSON doesnt exist! Cannot read the Data That Typically Changes!");
+  } else console.error("Data 'userDmMap' JSON doesnt exist! Cannot read the Data That Typically Changes!");
+
+  if (fs.existsSync(path+"/subscribed.json")) {
+    modules.disboardReminder.subscriptions = new Set([u_selk]);
+    let data = JSON.parse(fs.readFileSync(path+"/subscribed.json"));
+    modules.disboardReminder.subscriptions = new Set(data);
+    modules.disboardReminder.dests = [...modules.disboardReminder.subscriptions].map(a=>userDmMap.get(a)).filter(a=>a);
+    console.log("Subscriptions list loaded.")
+  } else console.error("Data 'subscribed' JSON doesnt exist! Cannot read the Data That Typically Changes!");
+
+  try{
+    let m = bot.modules.find(a=>a.name=="newxp");
+    if (m)
+      m.load(m,path);
+  } catch (e) {console.error(e)}
 }
 save = function(path = "gateway_data") {
     // Typically Unchanging
@@ -155,13 +189,25 @@ save = function(path = "gateway_data") {
     fs.writeFileSync(path+"/userXpMap.json",JSON.stringify((
         Object.fromEntries([...userXpMap.entries()].map(a=>[a[0],Object.fromEntries(a[1])]))
       ),null,2));
-    console.log("XP Map saved.");
+    console.log("Old XP Map saved.");
   } catch (e) {console.error(e)}
   try {
     fs.writeFileSync(path+"/userDmMap.json",JSON.stringify((
         Object.fromEntries([...userDmMap.entries()].sort((a,b)=>Number(a)-Number(b)))
-      ),null,2))
+      ),null,2));
     console.log("DM Map saved.");
+  } catch (e) {console.error(e)}
+  try {
+    fs.writeFileSync(path+"/subscribed.json",JSON.stringify((
+        [...modules.disboardReminder.subscriptions].sort((a,b)=>Number(a)-Number(b))
+      ),null,2));
+    console.log("Subscriptions list saved.");
+  } catch (e) {console.error(e)}
+  try {
+    let m = bot.modules.find(a=>a.name=="newxp");
+    if (m) {
+      m.save(m,path);
+    }
   } catch (e) {console.error(e)}
 }
 
@@ -185,7 +231,8 @@ class Bot {
   constructor() {
     this.ws = null;
     this.lastSequence = null;
-    this.lastHeartbeat = 0;
+    this.heartbeatRequested = false;
+    this.heartbeatTimestamp = 0;
     this.heartbeatShouldBeRunning = false;
     this.types = new Map(); // dispatch_type -> count
     this.contacts = [];  // TODO: Crashes on outputting more than 500mb. Split into 100k segments on output?
@@ -220,70 +267,83 @@ class Bot {
     } catch (err) {}
   }
 
-  wsSend = function(webhookPacket) {
+  wsSend = function(websocketPacket) {
     console.log("Sending:")
-    console.log(JSON.stringify(webhookPacket,null,2))
+    console.log(JSON.stringify(websocketPacket,null,2))
     if (this.connectionAlive)
-      this.ws.send(JSON.stringify(webhookPacket,null));
+      this.ws.send(JSON.stringify(websocketPacket));
     else
       console.log("Failed to send. Connection is dead.")
   }
 
   heartbeatForce = function() {
-    this.lastHeartbeat = 0;
+    this.heartbeatRequested = true;
     this.heartbeat();
 
-    let wasRunning = this.heartbeatShouldBeRunning;
-
-    this.heartbeatShouldBeRunning = false;
-    setTimeout(()=>{
-      this.heartbeatShouldBeRunning = wasRunning;
-      this.heartbeat()
-    },1000);
   }
 
-  // Occasionally a double heartbeat gets generated with 2 threads running with the same id or something...
-  heartbeat = function() {
+  heartbeat = function(id) {
+    let now = +Date.now();
     if (!this.connectionAlive) {
-      console.log("[hb] Planned heartbeat cancelled. Connection is dead.");
+      console.log(`[hb-${id}] Planned heartbeat cancelled. Connection is dead.`);
       this.heartbeatShouldBeRunning = false;
-      this.lastHeartbeat = 0;
       return;
     }
     if (!this.heartbeatShouldBeRunning) {
-      console.log("[hb] Heartbeat should not be running. Stopping heartbeat.");
+      console.log(`[hb-${id}] Heartbeat should not be running. Stopping heartbeat.`);
       this.heartbeatShouldBeRunning = false;
-      this.lastHeartbeat = 0;
       return;
     }
-    if (Date.now()>=this.lastHeartbeat+this.interval) {
-      console.log("[hb] Ba-Bum. Heartbeat sent for message "+this.lastSequence+".");
-      this.ws.send(JSON.stringify({"op":1,"d": this.lastSequence}));
-      this.lastHeartbeat = Date.now();
+    if (!id) {
+      id = Math.floor(Math.random()*(1<<24)).toString(16).padStart(6,'0');
+      console.log(`[hb-${id}] New heartbeat thread created: "${id}"`);
     }
-    setTimeout(()=>this.heartbeat(),500);
+
+    // Send an actual heartbeat
+    if (this.heartbeatRequested || (this.heartbeatTimestamp && now>=this.heartbeatTimestamp+this.interval)) {
+      console.log(`[hb-${id}]`,JSON.stringify({heartbeatRequested:this.heartbeatRequested,msToScheduled:(this.heartbeatTimestamp+this.interval-now),now,scheduledTime:(this.heartbeatTimestamp+this.interval)}));
+      let heartbeatObject = {"op":1,"d": this.lastSequence};
+      console.log(`[hb-${id}] Ba-Bum. Heartbeat sent for message ${this.lastSequence}.`);
+      console.log("~>",heartbeatObject);
+      this.ws.send(JSON.stringify(heartbeatObject));
+      this.heartbeatTimestamp = +Date.now();
+      this.heartbeatRequested = false;
+    }
+
+    // Run the cache-queue
     try{cq.attempt()}catch{}
 
-    // save data on occasion
-    try{
-      if (this.contacts.length%100000 == 0 && this.contacts.length>0 && !this.isSaving) {
-        this.isSaving = true;
-        sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
-            "Saving contacts #"+(this.contacts.length/100000)+"..."
-          );
-        this.heartbeatForce();
-        this.cleanup();
-        this.heartbeatForce();
-        sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
-            "Contacts saved."
-          );
-        this.isSaving = false;
-      }
-    }catch (e) {
-      sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
-          "Try-Catch catch ran in scheduled save. Crash prevented, and error stored in global variable `dumpcatch`..."
+    // save on occasion (every ${occasionalSaveSize} disbatches)
+    if (FORCE_OCCASIONAL_SAVE || this.contacts.length%occasionalSaveSize == 0 && (lastSaveSize-this.contacts.length)>0 && !this.isSaving) {
+      bot.saveOnOccasion();
+      // check if another hb is needed right away.
+      this.heartbeat(id);
+    } else {
+      setTimeout(()=>this.heartbeat(id),heartbeatThreadingInterval);
+    }
+
+  }
+
+  saveOnOccasion = function() {
+    try {
+      this.isSaving = true;
+      FORCE_OCCASIONAL_SAVE = false;
+      sendMessage([/*"870500800613470248",*/"883172908418084954"],
+          `Starting occasional save #${this.contacts.length/occasionalSaveSize}...`
         );
-      dumpcatch = e;
+      bot.heartbeatRequested = true;
+      lastSaveSize = this.contacts.length;
+      this.cleanup();
+
+      sendMessage([/*"870500800613470248",*/"883172908418084954"],
+          "Occasional save complete."
+        );
+      this.isSaving = false;
+    } catch (e) {
+      sendMessage([/*"870500800613470248",*/"883172908418084954"],
+          "Try-Catch catch ran in scheduled save. Crash prevented, and error stored in global variable `SAVECRASHCATCHDUMP`..."
+        );
+      SAVECRASHCATCHDUMP = e;
       this.isSaving = false;
     }
   }
@@ -346,12 +406,12 @@ class Bot {
         thiss.lastSequence = last;
       thiss.wsSend({"op":6,"d":{"token":identify.d.token,"session_id":sid,"seq":thiss.lastSequence}})
     }
-    // ["870500800613470248","870868727820849183","883172908418084954"]
-    //   WOFCS embed playgr   twstjm firw testin   hyec firework logs
+    // ["870500800613470248","883172908418084954"]
+    //   WOFCS embed playgr   hyec firework logs
     if (sid)
-      sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],"Firework bot is reconnecting.");
+      sendMessage([/*"870500800613470248",*/"883172908418084954"],`Firework bot is reconnecting. (${version})`);
     else
-      sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],"Firework bot has connected.");
+      sendMessage(["870500800613470248","883172908418084954"],`Firework bot has connected. (${version})`);
   }
 
   wsOnClose = function(thiss, errcode, buffer) {
@@ -360,8 +420,8 @@ class Bot {
     console.log(errcode);
     console.log('"'+buffer.toString()+'"');
 
-    sendMessage([/*"870500800613470248","870868727820849183",*/"883172908418084954"],
-      "Firework bot has lost connection: "+errcode+"\n> '"+buffer.toString()+"'");
+    sendMessage([/*"870500800613470248",*/"883172908418084954"],
+      `Firework bot has lost connection: ${errcode} (${version})\n> "${buffer.toString()}"`);
 
     if (errcode === 1001) {
       if (buffer.toString() === "Discord WebSocket requesting client reconnect.")
@@ -385,9 +445,10 @@ class Bot {
     let messagestr = JSON.stringify(message,null,2);
     if (thiss.print) console.log(messagestr);
 
-    if (message.s===null || message.t==='RESUMED') {
-      console.log("Received message (none/heartbeat-ack)");
-      console.log(message)
+    if (message.op!==0 || message.s===null || message.t==='RESUMED') {
+      const OPNAMES = {'1': "HEARTBEAT_REQUESTED", '7': "RECONNECT_IMMEDIATELY", '9': "INVALID_SESSION", '10': "HELLO", '11': "HEARTBEAT_ACK"};
+      // console.log("Received message (none/heartbeat-ack)");
+      console.log(message.op, `(${OPNAMES[message.op]})`, "<~", message);
     }
     if (message.s!=null) {
       while (thiss.contacts.length<message.s-1)
@@ -411,18 +472,17 @@ class Bot {
       // trigger the heartbeat after waiting long enough.
       // Dont set last heartbeat to Date.now()-interval*random;
       // if hb is called now, it would send heartbeat on a multiple of the update interval.
-      thiss.lastHeartbeat = 0;
+      thiss.heartbeatRequested = false;
       console.log("[hb] Starting new Heartbeat thread. This should be the only place to do so, outside of manual heartbeat thread restart.")
       // First heartbeat should run after a jitter:
-      thiss.lastHeartbeat = 2*new Date() // Dont run yet
       thiss.heartbeat() // Start heartbeat thread
       // set to "run now" after jitter has passed.
-      setTimeout(()=>thiss.lastHeartbeat=0, thiss.interval*Math.random());
+      setTimeout(()=>{thiss.heartbeatRequested=true;}, thiss.interval*Math.random());
     } else
     // Send Heartbeat ASAP
     if (message.op === 1) {
       console.log("[hb] Early heartbeat requested. Should trigger in the next half second.")
-      thiss.lastHeartbeat = 0;
+      thiss.heartbeatRequested = true;
     } else
     // Resume Successful
     if (message.op === 7) {
@@ -431,7 +491,7 @@ class Bot {
     // Resume Failed
     if (message.op === 9) {
       console.error("Reconnect failed. Please start a new session.")
-      sendMessage(["870500800613470248","870868727820849183","883172908418084954"],
+      sendMessage(["870500800613470248","883172908418084954"],
         "Reconnect failed with op code 9. Will **_not_** attempt to reconnect. Bot has effectively died; Manual restart required.\n\n> "+version+"\n\n<@163718745888522241>");
       thiss.dc();
       setTimeout(()=>thiss.cleanup(),5000);
@@ -445,7 +505,12 @@ class Bot {
       if (message.t === "READY") {
         thiss.sessionID = message.d.session_id;
         thiss.self = message.d.user;
-        console.log("Connection READY: Logged in as "+thiss.self.username+"#"+thiss.self.discriminator+" <@"+thiss.self.id+"> "+(thiss.self.bot?"[bot]":"<<selfbot>>") + " -> "+thiss.sessionID)
+        let newGatewayUrl = message.d.resume_gateway_url || currentGatewayUrl;
+        if (newGatewayUrl != currentGatewayUrl) {
+          console.log(`Reconnect URL updated to "${message.d.resume_gateway_url}" from "${currentGatewayUrl}"`);
+          currentGatewayUrl = newGatewayUrl;
+        }
+        console.log("Connection READY: Logged in as "+thiss.self.username+"#"+thiss.self.discriminator+" <@"+thiss.self.id+"> "+(thiss.self.bot?"[bot]":"<<selfbot>>") + " -> "+thiss.sessionID);
       }
 
       console.log("Dispatch received: "+message.t+" #"+thiss.types.get(message.t) + " id="+message.s + thiss.hasInterest(messagestr))
@@ -459,7 +524,7 @@ class Bot {
 
   runModule = function(thiss, currentModule, message) {
     try {
-      if (currentModule.onDispatch) currentModule.onDispatch(thiss, message);
+      if (currentModule.onDispatch) currentModule.onDispatch(thiss, message, currentModule);
     } catch (err) {
       console.error(err);
       sendMessage("883172908418084954",err.toString())
@@ -513,26 +578,14 @@ class Bot {
   rc = function() {
     if (this.connectionAlive) {
       this.term();
-      setTimeout(()=>this.start(this.sessionID), 2*heartbeatUpdateInterval);
+      setTimeout(()=>this.start(this.sessionID), 2*heartbeatThreadingInterval);
     } else
       this.start(this.sessionID);
   }
-  // // reconnect elsewhere. Loses a lot of history. Not recommended.
-  // rcc = function() {
-  //   this.term();
-
-  //   setTimeout(()=>{
-  //     console.log("// -------- //");
-  //     console.log("// To reconnect from a new node instance, past in these commands with the same bot token.");
-  //     console.log(".load gateway.js");
-  //     console.log("bot.start('"+this.sessionID+"', "+this.lastSequence+")");
-  //     console.log("// -------- //");
-  //   }, 4*heartbeatUpdateInterval);
-  // }
-}
-go = function() {
-  bot.start();
-  setTimeout(()=>{bot.setStatus("Ice Selkie ✿#4064 code the Firework Bot!");}, 2000);
+  go = function() {
+    bot.start();
+    setTimeout(()=>{bot.setStatus("Ice Selkie ✿#4064 code the Firework Bot!");}, 2000);
+  }
 }
 // console.boxClassCreated = true;
 bot = new Bot();
@@ -548,11 +601,6 @@ bot = new Bot();
 
 
 
-// const WebSocket = require("ws").WebSocket;
-// const https = require("https");
-// const fs = require("fs");
-// const identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("gateway_static/token.json").toString())).token}};
-// const heartbeatUpdateInterval = 500;
 
 
 var multipartboundary = "boundary" + (Buffer.from("("+ +new Date()+")",'utf-8').toString("base64"))
@@ -781,6 +829,8 @@ async function sendMessage(channel_id, message_object) {
 replyToMessage = async function(original, message_object) {
   if (typeof message_object === "string")
     message_object = {"content":message_object};
+  if (!original.channel_id && original.d.channel_id)
+    original = original.d;
   message_object.message_reference = {channel_id:original.channel_id, message_id:original.id};
   return sendMessage(original.channel_id,message_object);
 }
@@ -896,10 +946,10 @@ function commandAndPrefix(content) {
 
 
 function isStaff(uid, gid) {
-  if (uid === "163718745888522241")
-    return true;
   if (!gid) // dm
     return false;
+  if (guildOwnerMap.get(gid)==uid)
+    return true;
   let member = memberMap.get(gid).get(uid);
   return (member && (member.roles.includes(r_mod) || member.roles.includes(r_modling)))
 }
@@ -974,11 +1024,11 @@ function timeDuration (start, end) {
 }
 
 function snowflakeToTime(snowflake) {
-  return snowflake?Number(BigInt(snowflake)/4194304n+1420070400000n):snowflake;
+  return snowflake?Number((BigInt(snowflake)>>22n)+1420070400000n):snowflake;
 }
 
 function timeToSnowflake(time) {
-  return String((BigInt(time)-1420070400000n)*4194304n);
+  return String((BigInt(new Date(time))-1420070400000n)<<22n);
 }
 
 function stringToSnowflake(str) {
@@ -1000,7 +1050,7 @@ function stringToSnowflake(str) {
 function userLookup(uid,gid) {
   try {
     // TODO: am using userMap before user is put into it.
-    let username = userMap.get(uid).username + "#" + userMap.get(uid).discriminator
+    let username = userMap.get(uid)?.username + "#" + userMap.get(uid)?.discriminator
     let nick = undefined
     if (memberMap.has(gid)) {
       let guildMap = memberMap.get(gid)
@@ -1034,6 +1084,9 @@ function findMessage(mid) {
   let ret = []
   bot.contacts.forEach(a=>{if(a.t==="MESSAGE_CREATE" && a.d.id === mid) ret.push(a)})
   return ret
+}
+function last() {
+  return bot.contacts[bot.contacts.length-1];
 }
 
 
@@ -1070,15 +1123,19 @@ modules = {
 
 modules.nop = {
   name: "nop",
+  description: "NOP or No OPeration is a module that does nothing. It is usually used as a placeholder for other modules.",
   onDispatch: (bot,msg)=>{}
 }
 modules.securityIssue = {
   name: "securityIssue",
+  description: "Adds the `execute` and `execute-beta` commands. Allows for ~~RCE~~ remote troubleshooting.",
+  startingString: `<@870750872504786944> ${beta?"execute-beta":"execute"} `,
   onDispatch: (bot,msg) => {
     if (msg.t === "MESSAGE_CREATE" && msg.d.author.id === "163718745888522241"){
+    let startingString = modules.securityIssue.startingString;
       try {
-        if (/^<@870750872504786944> execute /.test(msg.d.content))
-          replyToMessage(msg.d,""+eval(msg.d.content.substring("<@870750872504786944> execute ".length))).then(a=>
+        if (msg.d.content.startsWith(startingString))
+          replyToMessage(msg.d,""+eval(msg.d.content.substring(startingString.length))).then(a=>
             {
               lastRet = a;
               if (a.ret!==200) {
@@ -1098,6 +1155,7 @@ modules.securityIssue = {
 }
 modules.userMemoryPre = {
   name: "userMemoryPre",
+  description: "Caches things like users, guilds, and channels to memory for later use. Runs before all other modules.",
   onDispatch: (bot,msg)=>{
     if (msg.t === "GUILD_CREATE") {
       guildNameMap.set(msg.d.id,msg.d.name)
@@ -1109,9 +1167,12 @@ modules.userMemoryPre = {
       })
       if (!memberMap.has(msg.d.id))
         memberMap.set(msg.d.id,new Map());
+      console.log("Adding ${msg.d.members.length} GUILD_CREATE members to memberMap of supposed ${msg.d.member_count} server members");
+      if (msg.d.members.length < msg.d.member_count)
+        bot.wsSend({op:8,d:{guild_id:msg.d.id,query:"",limit:0}});
       msg.d.members.forEach(member=>modules.userMemoryPre.mergeMember(msg.d.id,member.user.id,member));
       msg.d.roles.forEach(role=>rolePositions.set(role.id,role.position));
-      msg.d.channels.forEach(channel=>channelMap.set(channel.id,channel));
+      msg.d.channels.forEach(channel=>{channelMap.set(channel.id,channel);channelToGuildMap.set(channel.id,msg.d.id)});
     }
     if (msg.t === "GUILD_UPDATE") {
       if (msg.d.name)
@@ -1130,8 +1191,23 @@ modules.userMemoryPre = {
     }
     if (msg.t === "GUILD_ROLE_CREATE" || msg.t === "GUILD_ROLE_UPDATE")
       rolePositions.set(msg.d.role.id,msg.d.role.position);
-    if (msg.t === "CHANNEL_CREATE" || msg.t === "CHANNEL_UPDATE")
+    if (msg.t === "CHANNEL_CREATE" || msg.t === "CHANNEL_UPDATE") {
       channelMap.set(msg.d.id,msg.d);
+      channelToGuildMap.set(msg.d.id,msg.d.guild_id);
+    }
+    if (msg.t === "PRESENCE_UPDATE") {
+      msg.d.activities.forEach(b=>{
+      //if (b.type==4) {
+          if (!activityMap.has(msg.d.user.id))
+            activityMap.set(msg.d.user.id,new Map());
+          activityMap.get(msg.d.user.id).set(b.created_at,b);
+      //}
+      })
+    }
+    if (msg.t === "GUILD_MEMBERS_CHUNK") {
+      let guildMembers = memberMap.get(msg.d.guild_id);
+      msg.d.members.forEach(m=>guildMembers.set(m.user.id,JSON.parse(JSON.stringify(m))))
+    }
   },
   mergeMember: function (guild_id, user_id, member) {
     // Guild_ID is guarenteed to already be added.
@@ -1144,14 +1220,18 @@ modules.userMemoryPre = {
     else {
       // needs merge
       let old = guildMap.get(user_id);
-      if (old.user && !member.user)
+      if (old.user && !member.user) {
+        // Clone the object to prevent modifying
+        member = JSON.parse(JSON.stringify(member));
         member.user = old.user;
+      }
       guildMap.set(user_id,member);
     }
   }
 }
 modules.userMemoryPost = {
   name: "userMemoryPost",
+  description: "Removes cached things like members after they leave a guild. Runs after all other modules.",
   onDispatch: (bot,msg) => {
     if (msg.t === "GUILD_MEMBER_REMOVE") {
       memberMap.get(msg.d.guild_id).delete(msg.d.user.id)
@@ -1161,11 +1241,12 @@ modules.userMemoryPost = {
 
 modules.joinMessages = {
   name: "joinMessages",
+  description: "Sends a welcome message when a user joins a server, and notes their passing when they leave.",
 
   guildJoinChannels:  new Map([["713127035156955276","713444513833680909"]  //wofcs
                                ]),
-  guildAuditChannels: new Map([["713127035156955276","750509276707160126"], //wofcs
-                               ]),
+  guildJoinAuditChannels: new Map([["713127035156955276","750509276707160126"], //wofcs
+                              ]),
   messagesJoin: ['Please welcome {USER} to Pyrrhia!',
                  'Please welcome {USER} to Pantala!',
                  'Welcome to the dragons\' den, {USER}!',
@@ -1217,8 +1298,8 @@ modules.joinMessages = {
       // Add data
       message.embeds[0].fields.push({name:"Account Age",value: timeDuration(snowflakeToTime(user.id), msg.time,999)});
       // Send with more data
-      if (modules.joinMessages.guildAuditChannels.has(guild))
-        sendMessage(modules.joinMessages.guildAuditChannels.get(guild),message).then(a=>console.log(a));
+      if (modules.joinMessages.guildJoinAuditChannels.has(guild))
+        sendMessage(modules.joinMessages.guildJoinAuditChannels.get(guild),message).then(a=>console.log(a));
     }
     if (msg.t === "GUILD_MEMBER_REMOVE") {
       let user = msg.d.user; // {username,public_flags,id,discriminator,avatar}
@@ -1249,8 +1330,8 @@ modules.joinMessages = {
       message.embeds[0].fields.push({name:"Time On Server",value:timeDuration(Date.parse(member.joined_at),msg.time,999)})
       message.embeds[0].fields.push({name:"Roles",value:member.roles.length==0?"none":"<@&"+member.roles.join("> <@&")+">"})
       // Send with more data
-      if (modules.joinMessages.guildAuditChannels.has(guild))
-        sendMessage(modules.joinMessages.guildAuditChannels.get(guild),message).then(a=>console.log(a));
+      if (modules.joinMessages.guildJoinAuditChannels.has(guild))
+        sendMessage(modules.joinMessages.guildJoinAuditChannels.get(guild),message).then(a=>console.log(a));
     }
   }
 }
@@ -1258,6 +1339,7 @@ modules.joinMessages = {
 
 modules.inviteLogging = {
   name: "inviteLogging",
+  description: "Watches for invites being created, used, or deleted. Useful to see who invited a raid.",
   inviteMap: new Map(),
   guildInviteLogChannels: new Map([["713127035156955276","750509276707160126"], //wofcs
                               ]),
@@ -1372,27 +1454,56 @@ modules.inviteLogging = {
 
 modules.disboardReminder = {
   name: "disboardReminder",
+  description: "Sends a reminder ping 1h59m and 2h0m after a disboard bump. Useful to keep your server high on Disboard! The `subscribe` command will dm you pings as well.",
   lastBump: null,
+  subscriptions: new Set(),
   onDispatch: (bot, msg) => {
-    if (msg.t === "MESSAGE_CREATE" && msg.d.author.username === "DISBOARD" && msg.d.author.bot === true) {
+    let override = false;
+    if (msg.t === "MESSAGE_CREATE" && (msg.d.author.id == u_selk && msg.d.content == "<@870750872504786944> bumped"))
+      override = true;
+    if (override) console.log("Bump override is true.");
+    if (override || (msg.t === "MESSAGE_CREATE" && msg.d.author.username === "DISBOARD" && msg.d.author.bot === true)) {
       console.log("Message from disboard.")
-      if (msg.d.content.length === 0 && msg.d.attachments.length === 0 && msg.d.embeds.length === 1) {
+      if (override || (msg.d.content.length === 0 && msg.d.attachments.length === 0 && msg.d.embeds.length === 1)) {
         console.log("Message is embed only.")
         let e = msg.d.embeds[0];
-        if (e.url === "https://disboard.org/" && e.color === 2406327) {
+        if (override || (e.url === "https://disboard.org/" && e.color === 2406327)) {
           console.log("Message matches embed.")
           // now we can be pretty sure a bump was done.
           modules.disboardReminder.lastBump = Date.now();
           console.log("Disboard bumped! Timer set for 2 hours.")
           let bumpLink = "https://discord.com/channels/"+msg.d.guild_id+"/"+msg.d.channel_id+"/"+msg.d.id;
           let guildName = guildLookup(msg.d.guild_id)
-          let memberName = userLookup(msg.d.interaction.user.id, msg.d.guild_id)
-          sendMessage("870868315793391686",{embeds:[{description:"A [bump]("+bumpLink+") was just done in "+guildName+" by "+memberName}]});
-          setTimeout(()=>sendMessage(msg.d.channel_id,{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [up here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
-          setTimeout(()=>sendMessage("870868315793391686",{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [here]("+bumpLink+")."}]}),2*60*60*1000-60*1000);
-          setTimeout(()=>sendMessage(msg.d.channel_id,"A new bump can now be done with /bump.\nYou can click here to autofill the command: </bump:947088344167366698>"),2*60*60*1000);
-          setTimeout(()=>sendMessage("870868315793391686","A new bump can now be done."),2*60*60*1000);
+          let memberName = userLookup(msg.d.interaction?.user?.id, msg.d.guild_id)
+
+          // 1:59
+          setTimeout(()=>{
+            sendMessage(msg.d.channel_id,{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [up here]("+bumpLink+")."}]});
+          },2*60*60*1000-60*1000);
+
+          // Can now be done
+          setTimeout(()=>{
+            sendMessage(msg.d.channel_id,"A new bump can now be done with /bump.\nYou can click here to autofill the command: </bump:947088344167366698>");
+          },2*60*60*1000);
         }
+      }
+    } else if (msg.t === "MESSAGE_CREATE" && msg.d.content == `<@870750872504786944> subscribe`) {
+      let uid = msg.d.author?.id;
+      console.log(`Subscribe request from ${msg.d.author?.username}#${msg.d.author?.discriminator}.`);
+
+      if (!userDmMap.has(uid)) {
+        replyToMessage(msg.d, "No DM channel found. Please use the `dmme` command first, or message me.");
+      } else {
+        if (modules.disboardReminder.subscriptions.has(uid)) {
+          modules.disboardReminder.subscriptions.delete(uid);
+          sendMessage(userDmMap.get(uid),"Subscription removed! Use the `subscribe` command to resubscribe.");
+          if (msg.d.channel_id!=userDmMap.get(uid)) replyToMessage(msg.d,"Subscription removed! Use the `subscribe` command to resubscribe.");
+        } else {
+          modules.disboardReminder.subscriptions.add(uid);
+          sendMessage(userDmMap.get(uid),"Subscription created! Use the `subscribe` command to unsubscribe.");
+          if (msg.d.channel_id!=userDmMap.get(uid)) replyToMessage(msg.d,"Subscription created! Use the `subscribe` command to unsubscribe.");
+        }
+        modules.disboardReminder.dests = [...modules.disboardReminder.subscriptions].map(a=>userDmMap.get(a)).filter(a=>a);
       }
     }
   }
@@ -1400,8 +1511,9 @@ modules.disboardReminder = {
 
 modules.threadLogging = {
   name: "threadLogging",
+  description: "Watches for threads being created, renamed, deleted, or archived.",
   guildThreadLogChannels: new Map([["713127035156955276","750509276707160126"], //wofcs
-                              ]),
+                            ]),
   threadChangesToIgnore: ["member_count","message_count","last_message_id","thread_metadata.archive_timestamp"],
   onDispatch: (bot, msg) => {
     let guild = msg.d.guild_id
@@ -1440,9 +1552,11 @@ modules.threadLogging = {
         sendMessage(modules.threadLogging.guildThreadLogChannels.get(guild),message).then(a=>console.log(a));
     }
     if (msg.t === "GUILD_UPDATE") {
-      sendMessage("750509276707160126",{embeds:[{color:5797096,title:"Server Modified",
+      let message = {embeds:[{color:5797096,title:"Server Modified",
               description:"The server was modified in some way."
-              +"\n(This could be rename, server icon change, owner change, boost, automod, or similar!)"}]});
+              +"\n(This could be rename, server icon change, owner change, boost, automod, or similar!)"}]};
+      if (modules.threadLogging.guildThreadLogChannels.has(guild))
+        sendMessage(modules.threadLogging.guildThreadLogChannels.get(guild),message).then(a=>console.log(a));
     }
 
     // Should also read threads from active threads on start.
@@ -1453,6 +1567,7 @@ modules.threadLogging = {
 
 modules.infoHelpUptime = {
   name: "infoHelpUptime",
+  description: "`uptime`/`status`/`info` command to list uptime info about the bot. `help` command to list available commands (manually updated and thus probably out of date).",
   onDispatch: (bot,msg) => {
     if (msg.t === "MESSAGE_CREATE"){
       let prefix = "<@"+bot.self.id+">";
@@ -1485,15 +1600,16 @@ modules.infoHelpUptime = {
 
           staff = isStaff(msg.d.author.id,msg.d.guild_id);
           dev = isDev(msg.d.author.id,msg.d.guild_id);
-          hasModuleEmbeds = bot.modules.filter(a=>a.name==="embeds").length>0 && staff;
-          hasModuleXp = bot.modules.filter(a=>a.name==="xp").length>0;
-          hasModuleThreadAlive = bot.modules.filter(a=>a.name==="threadAlive").length>0 && staff;
-          hasModuleSaveLoad = bot.modules.filter(a=>a.name==="saveLoad").length>0 && dev;
+          hasModuleEmbeds = staff && bot.modules.filter(a=>a.name==="embeds").length>0;
+          hasModuleXp = bot.modules.filter(a=>a.name==="newxp").length>0;
+          hasModuleThreadAlive = staff && bot.modules.filter(a=>a.name==="threadAlive").length>0;
+          hasModuleSaveLoad = dev && bot.modules.filter(a=>a.name==="saveLoad").length>0;
           hasModuleWhois = bot.modules.filter(a=>a.name==="whois").length>0;
           hasModuleBoosters = bot.modules.filter(a=>a.name==="boosters").length>0;
-          hasModuleListModules = bot.modules.filter(a=>a.name==="listModules").length>0 && dev;
+          hasModuleListModules = dev && bot.modules.filter(a=>a.name==="listModules").length>0;
 
           replyToMessage(msg.d,"Firework bot ("+version+")\n"
+            +`(You have the following flags: ${staff?"staff, ":""}${dev?"dev, ":""})\n`
             +"> "+"Default Commands:\n"
             +"> "+" • `help  ` - Displays this\n"
             +"> "+" • `prefix` - The prefix (`@"+bot.self.username+"#"+bot.self.discriminator+"` or `<@"+bot.self.id+">`)\n"
@@ -1503,7 +1619,7 @@ modules.infoHelpUptime = {
              "> "+" • `embed` - (admin) Embed help\n")
             +(!hasModuleXp?"":
              "> "+"XP Module Commands:\n"+
-             "> "+" • `rank [uid] ` - View your server rank and xp\n"+
+             "> "+" • `xp         ` - View your server rank and xp\n"+
              "> "+" • `leaderboard` - View the levels of the top 10 users in the server\n"+
              "> "+" • `           ` - More coming soon!\n")
             +(!hasModuleThreadAlive?"":
@@ -1534,11 +1650,12 @@ modules.infoHelpUptime = {
 
 modules.embeds = {
   name: "embeds",
+  description: "Given a passed embed, repost the specified embed.",
   onDispatch: (bot,msg) => {
     // if is new message and from admin ->
     // parse contents (or next message), and send that data as an embed to the same channel.
     if (msg.t === "MESSAGE_CREATE" /*&& msg.d.member.roles*/)
-      if (isStaff(msg.d.author.id,msg.d.guild_id)) {
+      if (isStaff(msg.d.author.id, msg.d.guild_id)) {
         let startString = "<@"+bot.self.id+"> embed";
         let startString2 = "<@!"+bot.self.id+"> embed";
         if (msg.d.content.startsWith(startString) || msg.d.content.startsWith(startString2)) {
@@ -1583,6 +1700,7 @@ modules.embeds = {
 
 modules.threadAlive = {
   name: "threadAlive",
+  description: "[WIP] Watch for when threads are about to get automatically archived, and shift their close time to reset the archival timer. (Currently does not work).",
   threads: new Map(),
   threadAlive: null,
   onDispatch: (bot,msg) => {
@@ -1667,8 +1785,9 @@ modules.threadAlive = {
   }
 }
 
-modules.xp = {
-  name: "xp",
+modules.oldxp = {
+  name: "oldxp",
+  description: "The XP system of the bot. Send messages to gain xp and levels. Eventually will have levels tied to roles, and xp decay over time. XP earning and level definitions taken from MEE6.",
   xp_per_message: [15,25],
   xp_rate: 1,
   ignored_channels: new Set([
@@ -1691,7 +1810,7 @@ modules.xp = {
     if (msg.t !== "MESSAGE_CREATE")
       return;
 
-    let m = modules.xp;
+    let m = modules.oldxp;
 
     console.log("can earn xp?");
     if (m.canEarnXp(m, msg.d, msg.time))
@@ -1712,10 +1831,10 @@ modules.xp = {
   max_lvl: 200,
   lvls: undefined,
   xpToLvl: xp => {
-    let m = modules.xp;
+    let m = modules.oldxp;
     if (!m.lvls)
-      m.lvls = [...Array(modules.xp.max_lvl+1)].map((_,i)=>modules.xp.lvlToXp(i));
-    if (xp>m.lvls[modules.xp.max_lvl])
+      m.lvls = [...Array(modules.oldxp.max_lvl+1)].map((_,i)=>modules.oldxp.lvlToXp(i));
+    if (xp>m.lvls[modules.oldxp.max_lvl])
       return 9999;
     return m.lvls.map(a=>a-xp>0).indexOf(true)-1;
   },
@@ -1767,11 +1886,11 @@ modules.xp = {
     return xpobj;
   },
   checkLevelup: (xpobj,gid,uid) => {
-    let expectedLvl = modules.xp.xpToLvl(xpobj.xp);
+    let expectedLvl = modules.oldxp.xpToLvl(xpobj.xp);
     let currentLvl = xpobj.lvl;
     if (expectedLvl > currentLvl) {
       // Level up notification
-      let notifobj = modules.xp.level_nofif.get(gid);
+      let notifobj = modules.oldxp.level_nofif.get(gid);
       if (notifobj) {
         sendMessage(notifobj.announce_channel,notifobj.message.replaceAll("{player}","<@"+uid+">").replaceAll("{level}",expectedLvl));
         // sendMessage(c_fire,notifobj.message.replaceAll("{player}","<@"+uid+">").replaceAll("{level}",expectedLvl));
@@ -1796,7 +1915,7 @@ modules.xp = {
     xpobj.lastxptime = time;
     userXpMap.get(gid).set(uid,xpobj);
 
-    modules.xp.checkLevelup(xpobj,gid,uid);
+    modules.oldxp.checkLevelup(xpobj,gid,uid);
   },
   isRequestingLevels: (m, d) => {
     let command = commandAndPrefix(d.content);
@@ -1850,7 +1969,7 @@ modules.xp = {
         lb.map(
           a=>
             m.getRank(m,d.guild_id,a[0],a[0]!==d.author.id?lb:null)
-            +"\t—\tLevel "+a[1].lvl+" ("+a[1].xp+"xp)"
+            +"\t—\tLevel "+a[1].lvl
             +"\t— <@"+a[0]+">")
         .join("\n")
 
@@ -1898,6 +2017,7 @@ modules.xp = {
 
 modules.saveLoad = {
   name: "saveLoad",
+  description: "Watches for save, load, and dump commands for saving and loading ephemeral data and dumping contents for troubleshooting.",
   onDispatch: (bot, msg) => {
 
     if (msg.t !== "MESSAGE_CREATE" || !isStaff(msg.d.author.id,msg.d.guild_id))
@@ -1930,6 +2050,7 @@ modules.saveLoad = {
 
 modules.whois = {
   name: "whois",
+  description: "whois [snowflake] will lookup the user associated with that UID regardless of shared servers, resolving username, avatar, account age, and some of their badges.",
   cooldownTime: 10000,
   commandCooldown: new Map(),
   onDispatch: (bot, msg) => {
@@ -2128,6 +2249,7 @@ modules.whois = {
 
 modules.whatis = {
   name: "whatis",
+  description: "Attempts to figure out what a snowflake is. Is it a user? server? channel? emote? This is the most comprehensive test for discord snowflakes. Limited to 1 per minute, as it generates a lot of API requests.",
   cooldownTime: 10000,
   commandCooldown: new Map(),
   onDispatch: async (bot, msg) => {
@@ -2193,7 +2315,7 @@ modules.whatis = {
     let guild = !!guildOwnerMap.get(snowflake);//guildMap?.get(snowflake);
     let guildFound = guild?"**Found**":"_Unknown_"
     if (!guild) {
-      let req = await discordRequest('guilds/'+snowflake+'/emojis')
+      let req = await discordRequest('guilds/'+snowflake+'/widget.json') // emojis now returns 404 for 403. Use widget.
       switch (req.ret) {
                case 404: guildFound = "_Doesn't Exist_";
         break; case 403: guildFound = "**Exists**";
@@ -2329,6 +2451,7 @@ modules.whatis = {
 
 modules.boosters = {
   name:"boosters",
+  description: "Attempts to list the boosters of a server. Discord doesn't always send all of this information, so sometimes this doesn't work quite as expected.",
   onDispatch: (bot,msg) => {
     if (msg.t !== "MESSAGE_CREATE" || !msg.d.guild_id)
       return;
@@ -2365,6 +2488,7 @@ modules.boosters = {
 
 modules.listModules = {
   name: "listModules",
+  description: "Lists the modules that are currently active on the bot.",
   onDispatch: (bot,msg) => {
     if (msg.t !== "MESSAGE_CREATE" || !msg.d.guild_id)
       return;
@@ -2372,11 +2496,498 @@ modules.listModules = {
     if (!command)
       return;
     let first = command.shift().toLowerCase()
-    if (first !== "listmodules")
+    if (first !== "listmodules" && first !== "modules")
       return;
-    replyToMessage(msg.d,bot.modules.map(a=>a&&a.name?a.name:"{unknown or removed module}").join("\n"))
+    // with description is too long
+    replyToMessage(msg.d,bot.modules.map(a=>a?.name/*`${a?.name} - ${a?.description}`*/??"{unknown or removed module}").join("\n"))
   }
 }
+
+modules.webhookWatch = {
+  name: "webhookWatch",
+  description: "Like threadwatch, but watches for webhooks being created, changed, or deleted. Keep a watch for hacked webhooks!",
+  webhookMap: new Map(), // gid -> {wid: wobj} // to be diffable
+  onDispatch: (bot,msg) => {
+    let m = modules.webhookWatch;
+    if (msg.t === "GUILD_CREATE") {
+      let gid = msg.d.id;
+      cq.add(cq.medium,()=>discordRequest("guilds/"+gid+"/webhooks")
+        .then(a=>{
+          _debug_webhooks=a;
+          if (a.ret != 200)
+            return console.error("Guild webhooks failed to load: "+gid);
+          let webhooksLoaded = JSON.parse(a.res);
+          m.webhookMap.set(gid,Object.fromEntries(webhooksLoaded.map(a=>[a.id,a]).sort()))
+        }));
+      cq.attempt();
+    }
+
+    if (msg.t !== "WEBHOOKS_UPDATE")
+      return;
+    if (Object.keys(msg.d).length==2 && msg.d.guild_id && msg.d.channel_id) {
+      let gid = msg.d.guild_id;
+
+      cq.add(cq.medium,()=>discordRequest("guilds/"+gid+"/webhooks").then(res=>{
+        let message = {embeds:[{color:5797096,title:"Webhooks Changed",
+              description:"A webhook was changed"+(msg.d.channel_id?" in <#"+msg.d.channel_id+">":"")+"."}]}
+        let diffText = "Unknown changes. See firework logs."
+        let original = m.webhookMap.get(gid);
+        let changed = Object.fromEntries(JSON.parse(res.res).map(a=>[a.id,a]).sort())
+        try {
+          let diffo = getDiffObj(original,changed)
+          let diffs = getDiffsFromDiffObj(diffo)
+          diffText = []
+          diffs = diffs.filter(a=>{return modules.threadLogging.threadChangesToIgnore.indexOf(a[1].join("."))==-1})
+          diffs.forEach(a=>diffText.push(a[1].join('.')+" -> "+diffToText(getWithin(diffo,a[1]))))
+          diffText = "Attributes changed ("+diffs.length+"): \n> "+diffText.join("\n> ")
+        } catch (e) {console.error("Diff failed:",e)}
+
+        message.embeds[0].description+="\n\n"+diffText;
+
+        if (modules.threadLogging.guildThreadLogChannels.has(msg.d.guild_id))
+          sendMessage(modules.threadLogging.guildThreadLogChannels.get(msg.d.guild_id),message).then(a=>console.log(a));
+
+        m.webhookMap.set(gid,changed);
+      }));
+      cq.attempt();
+    }
+  }
+}
+
+modules.directMessages = {
+  name: "directMessages",
+  description: "The `dmme` command to attempt to send messages to a dm. Will also register the channel for things like disboardReminder's subscribe command.",
+  onDispatch: (bot,msg) => {
+    // check if new message is from dms or not.
+    if (msg.t !== "MESSAGE_CREATE")
+      return;
+    let m = modules.directMessages;
+    let uid = msg.d.author.id;
+    let isDm = !msg.d.guild_id;
+    if (isDm && !channelMap.has(msg.d.channel_id)) {
+      discordRequest('channels/'+msg.d.channel_id).then(
+        res=>{
+          let channel = JSON.parse(res.res);
+          console.log("New DM Channel Seen: "+JSON.stringify(channel));
+          channelMap.set(channel.id,channel);
+          channelToGuildMap.set(channel.id,null);
+
+          if (channel.recipients.length == 1 && channel.recipients[0].id)
+          userDmMap.set(channel.recipients[0].id, channel.id);
+        });
+    }
+
+    let command = commandAndPrefix(msg.d.content);
+    if (command && command.shift().toLowerCase() == "dmme") {
+      if (!userDmMap.has(uid)) {
+        discordRequest('users/@me/channels',{"recipient_id":uid}).then(
+          res=>{
+            let channel = JSON.parse(res.res);
+            channelMap.set(channel.id,channel);
+            userDmMap.set(uid,channel.id);
+            channelToGuildMap.set(channel.id,null);
+            m.sendGreetings(uid);
+          });
+      } else {
+        m.sendGreetings(uid)
+      }
+    }
+  },
+  sendGreetings: (uid) => {
+    sendMessage(userDmMap.get(uid),"Hello! DM channel now recognized.");
+  }
+}
+
+modules.interactions = {
+  name:"interactions",
+  description: "[WIP] add interactions so we can begin transfering our commands to interactions instead of text commands",
+  onDispatch:(bot,msg)=>{
+    if (msg.t == "INTERACTION_CREATE") {
+      console.log("Interaction Seen");
+      let interaction = msg.d;
+      let dest = `interactions/${interaction.id}/${interaction.token}/callback`;
+      let name = interaction.user?.global_name??interaction.member?.user.global_name??interaction.user?.username??interaction.member?.user.username??"Unknown";
+      let obj = {type:4,data:{flags:1<<6,content:`Not implemented yet.\n${name} submitted "${interaction.data?.options?.[0]?.value}" to "${interaction.data.name}" in <#${interaction.channel_id}>`}};
+      // discordRequest(dest,obj,"POST", null, true, false);
+      // discordRequest(dest,obj,"POST", null, true, false);
+    }
+  }
+};
+
+modules.vcjoins = {
+  name:"vcjoins",
+  description: "Send messages when someone joins or leaves a vc. Dyno's embeds were duplicated.",
+  vcjoinGuildMap: new Map([
+    [g_anp, "1186142332286947389"], // ANP, coffee-table
+  ]),
+  onCallMap: new Map(),
+  onDispatch:(bot,msg)=>{
+    if (msg.t == "VOICE_STATE_UPDATE") {
+      let gid = msg.d.guild_id;
+      if (!modules.vcjoins.vcjoinGuildMap.has(gid))
+        return;
+      let user = msg.d.member?.user;
+      let name = user?.display_name ?? user?.global_name ?? user?.username ?? "_unknown user_";
+      let uid = user?.id;
+      let cid = msg.d.channel_id;
+      let oldcid = modules.vcjoins.onCallMap.get(gid+"|"+uid);
+      if (cid) modules.vcjoins.onCallMap.set(gid+"|"+uid,cid);
+      else modules.vcjoins.onCallMap.delete(gid+"|"+uid);
+
+      let message;
+      let color;
+      let dontSend = false;
+      if (cid && !oldcid) {
+        message = `joined voice channel <#${cid}>**`;
+        color = 4437377;
+      } else if (cid && oldcid && cid!=oldcid) {
+        message = `switched voice channels <#${oldcid}> -> <#${cid}>**`;
+        color = 4437377;
+      } else if (!cid && oldcid) {
+        message = `left voice channel <#${oldcid}>**`;
+        color = 16729871;
+      } else if (!cid && !oldcid) {
+        message = `left a voice channel**`;
+        color = 16729871;
+      } else {
+        dontSend = true;
+      }
+
+      if (!dontSend)
+        sendMessage(modules.vcjoins.vcjoinGuildMap.get(gid),{embeds:[{
+            "description": `**<@${uid}> ${message}`,
+            "color": color,
+            "author": {
+              "name": name,
+              "icon_url": `https://cdn.discordapp.com/avatars/${uid}/${user.avatar}.png?size=4096`
+            },
+            "footer": {
+              "text": `ID: ${uid}`
+            },
+            "timestamp": new Date(msg.time).toISOString()
+          }]});
+    }
+  }
+}
+
+modules.messageAudits = {
+  name: "messageAudits",
+  description: "Audit log for removed messages.",
+  auditLogChannels: new Map([
+      [g_anp, "1186187875189018634"] // ANP#audit-log
+    ]),
+  onDispatch: (bot,msg)=>{
+    let m = modules.messageAudits;
+    if (msg.t == "MESSAGE_DELETE" && m.auditLogChannels.has(msg.d.guild_id)) {
+      let removed = messageCache.db.get(msg.d.id);
+      let author;
+      if (removed) {
+        author = removed.author;
+      } else {
+        author = {id:"unknown", }
+      }
+      let message = {embeds:[{
+        color:16729871,footer:{text:`Author: ${author.id} | Message ID: ${msg.d.id}`},timestamp:new Date(msg.time).toISOString(),
+        description:`**Message sent by <@${author.id}> Deleted in <#${msg.d.channel_id}>**\n${removed?removed.content:""}`
+      }]};
+      if (removed && author.avatar)
+        message.embeds[0].author = {name:author.username, icon_url: `https://cdn.discordapp.com/avatars/${author.id}/${author.avatar}.png?size=4096`};
+      sendMessage(m.auditLogChannels.get(msg.d.guild_id),message);
+    }
+
+    if (msg.t == "MESSAGE_UPDATE" && m.auditLogChannels.has(msg.d.guild_id)) {
+      let old = messageCache.db.get(msg.d.id);
+      let author = old?old.author:msg.d.author;
+      let message = {embeds:[{
+        color:4437377,footer:{text:`Author: ${author.id} | Message ID: ${msg.d.id}`},timestamp:new Date(msg.time).toISOString(),
+        description:`**Message sent by <@${author.id}> Changed in <#${msg.d.channel_id}> from**\n${old?old.content:""}`
+      }]};
+      if (old && author.avatar)
+        message.embeds[0].author = {name:author.username, icon_url: `https://cdn.discordapp.com/avatars/${author.id}/${author.avatar}.png?size=4096`};
+      sendMessage(m.auditLogChannels.get(msg.d.guild_id),message);
+    }
+
+    if (msg.t == "MESSAGE_CREATE" || msg.t == "MESSAGE_UPDATE")
+      messageCache.db.set(msg.d.id,msg.d);
+  }
+}
+
+modules.deleteReact = {
+// on MESSAGE_REACTION_ADD
+// if message_author_id is FIREWORK
+// and emoji.name is ":x:" and !emoji.id
+// and isStaff(user_id, guild_id)
+// then
+// remove channel_id/message_id
+}
+
+modules.newxp = {
+  name:"newxp",
+  description:"Server XP",
+  onDispatch: (bot,msg,m)=>{
+    const {data, isQuery, respondToQuery, isLoggableMessage, logMessage, checkLevelup} = m;
+    let query = null;
+    if (query = isQuery(m, msg))
+      respondToQuery(m, query, msg);
+    else if (isLoggableMessage(m, msg)) {
+      logMessage(m, msg);
+      checkLevelup(m);
+    }
+  },
+  // deleted: ["mid|cid"]
+  // messages: {"gid|uid":["mid|cid|boosting"]}
+  // settings: {"gid":{"setName": SETTINGS_OBJ }}
+  data:{deleted:new Set(),messages:{},settings:{}},
+  objDefnSettings: [
+    ["ignoredChannels", [], enforceSnowflakeArray, "channel blacklist or whitelist"],
+    ["ignoredIsWhitelist", false, enforceBool, "false = treat as whitelist instead"],
+    ["adminRoles", [], enforceSnowflakeArray, "roles allowed to add/set/modify others' xp"],
+    ["gainxpMessageValue", 1, enforceNonNegative, "xp per message sent"],
+    ["gainxpBoostBonus", .25, enforceNonNegative, "0 gives no benefit to boosters, 1 doubles their xp earned"],
+    ["gainxpMinTime", 1000, enforceDuration, "time period between gaining xp from messages, mee6 does 60000 (1min)"],
+    ["decayFunction", "mlogit", enforceEnumBuilder(["mlogit", "exp", "none", "linear"]), `"mlogit" "exp" "none" "linear"`],
+    ["decayStrength", 2, enforceNonNegative, "exp: \\*b^-t, mlogit: limits to \\*b^1-t, linear: -bt, no effect on none"],
+    ["decayTime", 365*24*60*60*1000, enforceDuration, "Time duration for 1 decay step"],
+    ["decayGrace", 0, enforceDuration, "Time before decay calculations kick in. (linear and exp only)"],
+    ["decayResetOnIgnored", true, enforceBool, "messages in ignored channels still reset decay (mlogit only)"],
+    ["rankupFunction", "sqrt", enforceEnumBuilder(["sqrt", /*"mee6",*/ "steps"]), `"sqrt" "steps"`],
+    // ["rankupRoles", {1:[]}, isDictOf(isNatural,enforceSnowflakeArray), "level to grant a role/rank"],
+    ["rankupDecay", 1, enforceNullableNatural, "dropping n levels below will retract rank. -1 to disable, 0 to remove immediately."],
+    // ["rankupMessage", "${name} just leveled up to ${level}!", ],
+  ],
+
+  save:(m, dir)=>{
+    fs.writeFileSync(dir+"/xp_settings.json",JSON.stringify(m.settingsCleanupAll(m,m.data.settings),null,2));
+    // Store as Binary?
+    fs.writeFileSync(dir+"/xp_deleted.jlob",JSON.stringify([...m.data.deleted].sort()));
+    // Store as Binary?
+    fs.writeFileSync(dir+"/xp_messages.jlob",JSON.stringify(m.data.messages));
+  },
+  load:(m, dir)=>{
+    m.data.settings = m.settingsCleanupAll(m,JSON.parse(fs.readFileSync(dir+"/xp_settings.json")));
+    m.data.deleted = new Set(JSON.parse(fs.readFileSync(dir+"/xp_deleted.jlob")));
+    m.data.messages = JSON.parse(fs.readFileSync(dir+"/xp_messages.jlob"));
+  },
+  findXp:(m, gid, uid, now)=>{
+    const {data, rankFunctions} = m;
+    let series = data.messages[gid+"|"+uid];
+    let settings = data.settings[gid]?.xp;
+    if (!series || !settings)
+      return null;
+    let pts = m.findXpSeries(m, settings, series, now);
+    let lvl = rankFunctions[settings.rankupFunction](pts);
+    let ptsNeeded = m.ptsToNextRank[settings.rankupFunction](pts, lvl+1);
+    return {pts,lvl,ptsNeeded};
+  },
+  // Given a "guild|user" and array of timestamps
+  // find how much XP they should have "now"
+  findXpSeries:(m, settings, series, now=new Date())=>{
+    const decay = m.decayFunctions[settings.decayFunction];
+    series.sort((a,b)=>Number(BigInt(a.split("|")[0])-BigInt(b.split("|")[0])));
+    // pts is xp running total
+    let pts = 0;
+    // lasttime is last message seen (resets decay timer)
+    let lasttime = 0;
+    // lastgained is last message to gain xp (resets minimum gain xp time delay)
+    let lastgained = 0;
+    for (let i=0; i<series.length; i++) {
+      let [mid, cid, boost] = series[i].split("|");
+      let timestamp = snowflakeToTime(mid);
+
+      // Update decay
+      pts = decay(pts, settings.decayStrength,(timestamp-lasttime)/settings.decayTime);
+      lasttime = timestamp;
+      // Gain xp
+      if (!settings.ignoredChannels.includes(cid) && settings.gainxpMinTime <= timestamp-lastgained) {
+        pts += settings.gainxpMessageValue + (Number(boost)?settings.gainxpBoostBonus:0);
+        lastgained = timestamp;
+      }
+    }
+    return now?decay(pts,settings.decayStrength,(now-lasttime)/settings.decayTime):pts;
+  },
+  decayFunctions: {
+    mlogit:(pointsIn,decayStrength,timeSteps)=> timeSteps>1000?0 : pointsIn * (2*Math.pow(decayStrength,timeSteps)/(1+Math.pow(decayStrength,2*timeSteps))),
+    exp:   (pointsIn,decayStrength,timeSteps)=> pointsIn * Math.pow(decayStrength,-timeSteps),
+    none:  (pointsIn,decayStrength,timeSteps)=> pointsIn,
+    linear:(pointsIn,decayStrength,timeSteps)=> pointsIn - decayStrength*timeSteps
+  },
+  rankFunctions: {
+    sqrt: (pointsIn)=> Math.floor(Math.sqrt(pointsIn)/3),
+    // 500 2500 7500 15000 50000 100000
+    steps:(pointsIn)=> pointsIn>=500?1:pointsIn>=2500?2:pointsIn>=7500?3:pointsIn>=15000?4:pointsIn>=50000?5:pointsIn>100000?6:0
+  },
+  ptsToNextRank: {
+    sqrt: (pts,goalLvl)=> ((goalLvl*3)**2) - pts,
+    steps:(pts,goalLvl)=> [0,500,2500,7500,15000,50000,100000,Infinity][goalLvl] - pts,
+  },
+  // command: /xp sets op:[add|del] name:str
+  isQuery:(m,msg)=>{
+    if (msg.t=="INTERACTION_CREATE"&&msg.d.data.id=="1245501705651748915")
+      return "Interaction XP";
+    if (msg.t=="MESSAGE_CREATE" && msg.d.content.startsWith("<@870750872504786944> ")){
+      let command = msg.d.content.split(" ").slice(1).join(" ");
+      let ret = [...(
+        //                         add/del   name
+        command.match(/^xp( sets)( [^ ]+)?( [^ ]+)?$/) ??
+        //                              set      tag     value
+        command.match(/^xp( settings)( [^ ]+)?( [^ ]+)?( [^ ]+)?$/) ??
+        //                           set     target  set/add   value
+        command.match(/^xp( admin)( [^ ]+)?( [^ ]+)?( [^ ]+)?( [^ ]+)?$/) ??
+        //                   set?     uid
+        command.match(/^(xp)( [^ ]+)?( [^ ]+)?$/) ??
+        //                      uid(s)/page
+        command.match(/^(leaderboard)( .+)?$/) ??
+        []
+      )];
+      ret = ret.slice(1).filter(a=>a).map(a=>a.trim());
+      console.log(ret);
+      return ret;
+    }
+  },
+  respondToQuery:(m, query, msg)=>{
+    console.log("respondToQuery seen: "+query);
+    if (query instanceof Array) {
+      if (query[0] == "xp" || query[0] == "rank")
+        m.queryGetRank(m, query, msg);
+      else if (query[0] == "settings")
+        m.querySettings(m, query, msg);
+      else if (query[0] == "leaderboard")
+        m.queryLeaderboard(m, query, msg);
+    }
+  },
+  queryGetRank:(m, query, msg)=>{
+    console.log({queryGetRank:query});
+    const gid = msg.d.guild_id;
+    let uid = msg.d.author.id;
+    let now = snowflakeToTime(msg.d.id);
+    let {pts,lvl,ptsNeeded} = m.findXp(m, gid, uid, now);
+    let user = msg.d.author;
+    console.log("User retrieved:",{pts,lvl,ptsNeeded});
+
+    // Todo: respect nickname/displayname
+    // Todo: respect server pfp
+    let xp_message = {embeds:[
+        {
+          color:5797096,
+          author:{name:user.username+"'s Server XP"},
+          timestamp: new Date(now).toISOString(),
+          thumbnail: user.avatar?{url: "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".webp?size=320"}:undefined,
+          fields: [
+            {name:`Level ${lvl}`,value:`${Math.floor(pts)} points (${Math.ceil(ptsNeeded)} to next level)`},
+            // {name:"Progress",value:remxp+"/"+levelXpReq+" ("+percent+"%) to level "+(xpobj.lvl+1)}
+          ]
+        }
+      ]};
+    replyToMessage(msg, xp_message);
+  },
+  querySettings:(m, query, msg)=>{
+    console.log({querySettings:query});
+    const {data} = m;
+    command = query.slice(1);
+    const gid = msg.d.guild_id;
+    if (!command[0]) {
+      const sets = Object.keys(data.settings[gid] || {}).sort();
+      replyToMessage(msg.d, sets.length==0?"This server had no XP sets set up!":"Valid sets: "+sets.join(", ")+".");
+    } else if (command[0]) {
+      const sets = data.settings[gid] || {};
+      set = sets[command[0]];
+      if (!set) {
+        replyToMessage(msg.d, `Server xp set ${JSON.stringify(command[0])} not found...`);
+        return;
+      }
+      replyToMessage(msg.d, "```json\n"+m.settingsDisplayable(m, set)+"\n```");
+    }
+  },
+  queryLeaderboard:(m, query, msg)=>{
+    console.log({queryLeaderboard:query});
+    const {data} = m;
+    const gid = msg.d.guild_id;
+    const now = snowflakeToTime(msg.d.id);
+    const members = [...memberMap.get(gid).keys()];
+
+    let content = (members.map(uid=>[uid,m.findXp(m, gid, uid, now)])
+      // keeping values with more than 1xp (we use floor later, not round)
+      .filter(a=>a[1]?.pts>=1)
+      // sort by current XP
+      .sort((a,b)=>b[1].pts-a[1].pts)
+      // Convert to userid and integer xp amount
+      .map(([uid,{pts,lvl}])=>[uid,Math.floor(pts),lvl])
+      // Take the top 20
+      .slice(0,20)
+      // Convert to string format of: "${place} - Level ${lvl} (${xp} messages) - @${user}"
+      .map(([uid,pts,lvl],i)=>`${String(i+1).padStart(2," ")} — Level ${lvl} (${pts} xp) — <@${uid}>`)
+      .join("\n"));
+
+    let lb_message = {embeds:[
+        {
+          color: 5797096,
+          title: "Server XP Leaderboard",
+          description: content,
+          // footer:{text:d.author.id},
+          timestamp: new Date(now).toISOString()
+        }
+      ]};
+    replyToMessage(msg, lb_message);
+  },
+  isLoggableMessage:(m, msg)=>(msg.t=="MESSAGE_CREATE" && !msg.d.author.bot)||msg.t=="MESSAGE_DELETE"||msg.t=="MESSAGE_DELETE_BULK",
+  logMessage:(m, msg)=>{
+    const deleted = m.data.deleted;
+    const mcreate = m.data.messages;
+    if (msg.t == "MESSAGE_DELETE") {
+      deleted.add(msg.d.id+"|"+msg.d.channel_id);
+    } else if (msg.t == "MESSAGE_DELETE_BULK") {
+      msg.d.ids.forEach(id=>deleted.add(id+"|"+msg.d.channel_id));
+    } else if (msg.t == "MESSAGE_CREATE" && !msg.d.author.bot) {
+      let k=msg.d.guild_id+"|"+msg.d.author.id;
+      mcreate[k]=mcreate[k]||[];
+      mcreate[k].push(msg.d.id+"|"+msg.d.channel_id+"|"+(msg.d.member?.premium_since?1:0));
+    }
+  },
+  checkLevelup:(m, )=>{},
+  settingsCleanup:(m, settings={})=>{
+    let ret = {};
+    const passParameter=(key, def, checkType=()=>true, cleanType=a=>a)=>{
+      if (settings[key])
+        if (checkType(settings[key]))
+          return ret[key] = cleanType(settings[key]);
+        else
+          console.log(`${key} failed clean check for value: ${JSON.stringify(settings[key])}`);
+      ret[key] = def;
+    }
+    m.objDefnSettings.forEach(([key,def,[checkType, cleanType]])=>{
+      console.log("Calling with",{key,def,checkType,cleanType,evals:{
+        retkey:ret[key],settingskey:settings[key],checked:checkType(settings[key]),cleaned:checkType(settings[key])?cleanType(settings[key]):undefined
+      }});
+      passParameter(key,def,checkType,cleanType);
+    });
+    return ret;
+  },
+  settingsCleanupAll:(m, gmap)=>{
+    return Object.fromEntries(Object.entries(gmap).map(([gid,allSets])=>
+        [gid,Object.fromEntries(Object.entries(allSets).map(([setname,settings])=>
+            [setname, m.settingsCleanup(m, settings)]
+          ))]
+      ));
+  },
+  settingsDisplayable:(m, settings)=>{
+    const {settingsCleanup} = m;
+    // console.log("To cleanup",settings);
+    settings = settingsCleanup(m, settings);
+    // console.log("Cleaned up",settings);
+    let display = [];
+    // display = m.objDefnSettings.map(([key, def,, desc])=>{
+    //     if (JSON.stringify(def)!==JSON.stringify(settings[key]))
+    //       return {key, val:settings[key], def, desc};
+    //   }).filter(a=>a);
+    // if (display.length == 0) console.log("Nothing to display");
+    if (display.length == 0) display = m.objDefnSettings.map(([key, val,, desc])=>{return{key,val,desc}});
+    display = display.map(({key,val,def,desc},i,arr)=>`${key}: ${JSON.stringify(val)}${i<arr.length-1?",":""}${desc?" // "+desc:""}`);
+    return `{\n  ${display.join("\n  ")}\n}`;
+  }
+}
+
+
+
 
 
 
@@ -2470,43 +3081,6 @@ tempModules.createThread = {
   }
 };
 
-tempModules.directMessages = {
-  name: "temp_directMessages",
-  onDispatch: (bot,msg) => {
-    // check if new message is from dms or not.
-    if (msg.t !== "MESSAGE_CREATE")
-      return;
-    let m = tempModules.directMessages;
-    let uid = msg.d.author.id;
-    let isDm = !msg.d.guild_id;
-    if (isDm && !userDmMap.has(msg.d.channel_id)) {
-      discordRequest('channels/'+msg.d.channel_id).then(
-        res=>{
-          let channel = JSON.parse(res.res)
-          channelMap.set(channel.id,channel)
-        });
-    }
-
-    let command = commandAndPrefix(msg.d.content);
-    if (command && command.shift().toLowerCase() == "dmme") {
-      if (!userDmMap.has(uid)) {
-        discordRequest('users/@me/channels',{"recipient_id":uid}).then(
-          res=>{
-            let channel = JSON.parse(res.res);
-            channelMap.set(channel.id,channel)
-            userDmMap.set(uid,channel.id);
-            m.sendGreetings(uid);
-          });
-      } else {
-        m.sendGreetings(uid)
-      }
-    }
-  },
-  sendGreetings: (uid) => {
-    sendMessage(userDmMap.get(uid),"Hello!");
-  }
-}
-
 tempModules.sendPregeneratedMessageSet = {
   name: "temp_sendPregeneratedMessageSet",
   onDispatch: (bot,msg) => {
@@ -2539,65 +3113,12 @@ tempModules.sendPregeneratedMessageSet = {
   }
 }
 
-modules.webhookWatch = {
-  name: "webhookWatch",
-  webhookMap: new Map(), // gid -> {wid: wobj} // to be diffable
-  onDispatch: (bot,msg) => {
-    let m = modules.webhookWatch;
-    if (msg.t === "GUILD_CREATE") {
-      let gid = msg.d.id;
-      cq.add(cq.medium,()=>discordRequest("guilds/"+gid+"/webhooks")
-        .then(a=>{
-          _debug_webhooks=a;
-          if (a.ret != 200)
-            return console.error("Guild webhooks failed to load: "+gid);
-          let webhooksLoaded = JSON.parse(a.res);
-          m.webhookMap.set(gid,Object.fromEntries(webhooksLoaded.map(a=>[a.id,a]).sort()))
-        }));
-      cq.attempt();
-    }
 
-    // try {
-    //   let diffo = getDiffObj(threadMap.get(msg.d.id),msg.d)
-    //   let diffs = getDiffsFromDiffObj(diffo)
-    //   diffText = []
-    //   console.log(diffs)
-    //   diffs = diffs.filter(a=>{return modules.threadLogging.threadChangesToIgnore.indexOf(a[1].join("."))==-1})
-    //   diffs.forEach(a=>diffText.push(a[1].join('.')+" -> "+diffToText(getWithin(diffo,a[1]))))
-    //   diffText = "Attributes changed ("+diffs.length+"): \n> "+diffText.join("\n> ")
-    // } catch (e) {console.error("Diff failed:",e)}
 
-    if (msg.t !== "WEBHOOKS_UPDATE")
-      return;
-    if (Object.keys(msg.d).length==2 && msg.d.guild_id && msg.d.channel_id) {
-      let gid = msg.d.guild_id;
 
-      cq.add(cq.medium,()=>discordRequest("guilds/"+gid+"/webhooks").then(res=>{
-        let message = {embeds:[{color:5797096,title:"Webhooks Changed",
-              description:"A webhook was changed"+(msg.d.channel_id?" in <#"+msg.d.channel_id+">":"")+"."}]}
-        let diffText = "Unknown changes. See firework logs."
-        let original = m.webhookMap.get(gid);
-        let changed = Object.fromEntries(JSON.parse(res.res).map(a=>[a.id,a]).sort())
-        try {
-          let diffo = getDiffObj(original,changed)
-          let diffs = getDiffsFromDiffObj(diffo)
-          diffText = []
-          diffs = diffs.filter(a=>{return modules.threadLogging.threadChangesToIgnore.indexOf(a[1].join("."))==-1})
-          diffs.forEach(a=>diffText.push(a[1].join('.')+" -> "+diffToText(getWithin(diffo,a[1]))))
-          diffText = "Attributes changed ("+diffs.length+"): \n> "+diffText.join("\n> ")
-        } catch (e) {console.error("Diff failed:",e)}
 
-        message.embeds[0].description+="\n\n"+diffText;
 
-        if (modules.threadLogging.guildThreadLogChannels.has(msg.d.guild_id))
-          sendMessage(modules.threadLogging.guildThreadLogChannels.get(msg.d.guild_id),message).then(a=>console.log(a));
 
-        m.webhookMap.set(gid,changed);
-      }));
-      cq.attempt();
-    }
-  }
-}
 
 
 
@@ -2622,13 +3143,20 @@ if (!beta) {
   bot.addModule(modules.infoHelpUptime)
   bot.addModule(modules.embeds)
   bot.addModule(modules.threadAlive)
-  bot.addModule(modules.xp)
+  // bot.addModule(modules.oldxp) // To be replaced.
+  bot.addModule(modules.newxp); // Newly replaced.
   bot.addModule(modules.saveLoad)
   bot.addModule(modules.whois)
   bot.addModule(modules.whatis) // WIP, but mostly done
   bot.addModule(modules.boosters) // kinda broken atm
   bot.addModule(modules.listModules)
   bot.addModule(modules.webhookWatch)
+  // bot.addModule(modules.notes) //
+  bot.addModule(modules.directMessages);
+  // bot.addModule(modules.interactions); // Doesnt do anything and blocks autocomplete.
+  bot.addModule(modules.vcjoins);
+  bot.addModule(modules.messageAudits);
+
 
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
@@ -2659,6 +3187,8 @@ if (beta) {
   bot.addModule(modules.boosters) // broken atm
   bot.addModule(modules.listModules)
   bot.addModule(modules.webhookWatch) // required for some logic
+  bot.addModule(modules.newxp);
+  bot.addModule({name:"autocomplete",description:"temp implementation",onDispatch:(bot,msg)=>{if(msg.t=="INTERACTION_CREATE"){respondSlash(msg.d)}}});
 
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
@@ -2668,4 +3198,5 @@ if (beta) {
   bot.modulesPre.push(modules.userMemoryPre);
   bot.modulesPost.push(modules.userMemoryPost);
 }
-console.log("Gateway.js Loaded!")
+respondSlash=()=>null;
+console.log(`Gateway.js Loaded! (version: ${version})`);

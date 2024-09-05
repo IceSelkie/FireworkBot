@@ -122,6 +122,28 @@ function diffToText(diffp) {
   if (diffp[0] === DO) return "Property Changed: "+JSON.stringify(diffp[1])+" -> "+JSON.stringify(diffp[2])
 }
 
+function sortKeys(obj) {
+  if (Array.isArray(obj)) {
+    return obj.map(sortKeys);
+  } else if (typeof obj === 'object' && obj !== null) {
+    // separate "id" key if exists
+    const {id, ...rest} = obj;
+
+    // sorted keys, with "id" always first if it exists
+    const keys = Object.keys(rest).sort();
+
+    if (id !== undefined) {
+      keys.unshift("id");
+    }
+
+    return keys.reduce((acc, key) => {
+      acc[key] = sortKeys(obj[key]);
+      return acc;
+    }, {});
+  }
+  return obj;
+}
+
 passing = true
 obj1 = {a:"hello",b:"hoot?",c:"text!",e:"diffcode"}
 obj2 = {a:"hello",          d:"text!",e:"morecode"}
@@ -152,5 +174,12 @@ function tests() {
   assertEquals(DP, getDiffObj(obj1,obj2).e[0])
 
   assertEquals(DP, getWithin(getDiffs(obj1,obj2),[3,0]))
+
+  // Sort keys
+  let left  = {"b":"yes","a":123,"c":{"3":[5,3,1,8],"1":null},"id":"someID"};
+  let right = {"id":"someID","a":123,"b":"yes","c":{"1":null,"3":[5,3,1,8]}};
+  let str = JSON.stringify(left);
+  assertEquals(JSON.stringify(right),JSON.stringify(sortKeys(left)));
+  assertEquals(str,JSON.stringify(left));
 }
 tests() ; if (passing) console.log("[Object Diff] Unit Tests Passed!"); else console.error("[Object Diff] Unit Tests Failed!")
