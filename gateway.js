@@ -1,7 +1,7 @@
 var WebSocket = require("ws").WebSocket;
 var https = require("https");
 var fs = require("fs");
-var identify = {"op":2,"d":{"intents":37587,"properties":{"$os":process.platform,"$browser":"node","$device":"firework_gateway"},"token":(JSON.parse(fs.readFileSync("gateway_static/token.json").toString())).token}};
+var identify = {"op":2,"d":{"intents":37619,"properties":{"$os":process.platform,"$browser":"node","$device":"firework_gateway"},"token":(JSON.parse(fs.readFileSync("gateway_static/token.json").toString())).token}};
 var currentGatewayUrl = 'wss://gateway.discord.gg';
 var heartbeatThreadingInterval = 500;
 var reconnectInterval = 4000;
@@ -23,7 +23,7 @@ var sents = [];
 var SAVECRASHCATCHDUMP = null;
 var FORCE_OCCASIONAL_SAVE = false;
 var beta = false; // sets which set of modules to use (prevents spam when debugging)
-var version = (beta?'β':'v')+'1.37.';
+var version = (beta?'β':'v')+'1.38.';
 
 // privilaged intents codes:
 //  w/o       w/
@@ -32,17 +32,15 @@ var version = (beta?'β':'v')+'1.37.';
 // avatars: https://cdn.discordapp.com/avatars/{uid}/{avatar_hash}.png?size=4096
 
 
-var g_hyec = "336394315041341463"
 var g_wofcs= "713127035156955276"
-var g_sup = "837532153344294972"
-var g_tws = "858140715448139837"
+var g_anp  ="1186141783856513024"
 
 var c_dm = "870868315793391686"
 var c_fire = "870500800613470248" // firework-playground
+var c_audit = "750509276707160126" // wofcs audit
+var c_anp_audit = "1186187875189018634"
 
 var u_selk = "163718745888522241"
-var u_syz = "642971818965073931"
-var u_gacek = "488383281935548436"
 
 var r_mod = "724461190897729596"
 var r_modling = "739602680653021274"
@@ -527,7 +525,12 @@ class Bot {
       if (currentModule.onDispatch) currentModule.onDispatch(thiss, message, currentModule);
     } catch (err) {
       console.error(err);
-      sendMessage(["883172908418084954","870500800613470248"],err.toString())
+      // Complain if the module exists and it crashed
+      if (currentModule?.onDispatch)
+        sendMessage(["883172908418084954","870500800613470248"],`Module "${currentModule?.name}" (index ${thiss.modules.indexOf(currentModule)}) crashed with error: ${err.toString()}`);
+      // Log but dont spam discord if it is somehow null/doesnt exist
+      else
+        console.log("Existing Modules:",thiss.modules.map((m,i)=>[i,m?.name]));
     }
   }
 
@@ -540,19 +543,21 @@ class Bot {
 
     let division_size = 500e3;
     let strlen = (this.contacts.length).toString().length;
+    let dir = beta?"contactsbeta/":"contacts/";
+    fs.mkdirSync(dir, {recursive:true});
     
     // Write sents:
-    fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+"-sents.json",JSON.stringify(sents));
+    fs.writeFileSync(dir+this.contacts[0].time+"-"+this.contacts.length+"-sents.json",JSON.stringify(sents));
 
     // Write contacts:
     if (this.contacts.length <= division_size) 
-      fs.writeFileSync("contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length+".json",JSON.stringify(this.contacts));
+      fs.writeFileSync(dir+this.contacts[0].time+"-"+this.contacts.length+".json",JSON.stringify(this.contacts));
     else {
       for (let i=0; i<this.contacts.length; i+=division_size) {
         // don't repeat old chunks that have already been saved.
         if (i>=this.lastSavedChunk) {
           fs.writeFileSync(
-              "contacts"+(beta?"beta/":"/")+this.contacts[0].time+"-"+this.contacts.length
+              dir+this.contacts[0].time+"-"+this.contacts.length
                 +"-part"+((i).toString().padStart(strlen,"0"))+".json",
               JSON.stringify(this.contacts.slice(i,i+division_size)));
           // lastSavedChunk will be a multiple of 500e3, will only increment if saving past the 500e3 block.
@@ -612,7 +617,7 @@ function discordRequest(path, data=null, method=null, attachments=null, isText=t
     'method="null/GET/POST/PUT/DELETE/etc"\n'+
     'attachments="../firework_pfp.png"\n'+
     '    or {filename?:"unknown.txt",mime?:"text/plain",path:"/path/to/file"}\n'+
-    '    or {filename?:"pfp.png",mime?:"image/png",data:<raw-data>}\n'+
+    '    or {filename?:"pfp.png",mime?:"image/png",data:<raw-bytes>}\n'+
     '    or array of above (up to 10)\n'+
     'isText=true -> utf8 text -> returned.res will be string\n'+
     '    otherwise, isText=false -> returned.res will be Buffer of raw bytes\n'+
@@ -659,7 +664,7 @@ function discordRequest(path, data=null, method=null, attachments=null, isText=t
       "path": (path.startsWith("https://")?path:"/api/v9/"+path),
       "method": method
     }
-    if (typeof data !== "string")
+    if (data!=null && typeof data !== "string")
       data = JSON.stringify(data);
 
     let multipartdata = []
@@ -732,49 +737,47 @@ function discordRequest(path, data=null, method=null, attachments=null, isText=t
 
       multipartdata.push(multipart);
       multipart = true;
+      data = multipartdata.join("");
     }
+
+    let encoding = isText?'utf8':null;
     
     let saveObject = {
       method:opts.method,
       path:opts.path,
-      timeSend:Date.now()
+      timeSend:Date.now(),
+      data,
+      isMultipart:multipart,
+      encoding
     };
-    if (data) saveObject.data = data;
-    if (multipart) saveObject.multipart = true;
     sents.push(saveObject);
     console.log(JSON.stringify(saveObject));
     // fs.appendFileSync("contacts"+(beta?"beta/":"/")+"latest.log",JSON.stringify(saveObject)+"\n")
 
+    let logDirectory = beta?"contactsbeta/":"contacts/";
+    fs.mkdirSync(logDirectory, {recursive:true});
+
     let req = https.request(opts,
       res=>{
-        let data;
-        if (isText)
-          data = '';
-        else
-          data = []
+        let dataReturned = [];
+        if (encoding) res.setEncoding(encoding);
 
-        if (isText)
-        res.setEncoding('utf8');
-        // console.log('Headers:\n'+JSON.stringify(res.headers,null,2));
-        res.on('data',part=>{
-          if (isText)
-            data+=part;
-          else
-            data.push(part)
-        });
+        res.on('data',part=>dataReturned.push(part));
+
         // TODO: remember ratelimit data
         res.on('end',()=>{
-          if (!isText)
-            data = Buffer.concat(data)
+          if (isText)
+            dataReturned = dataReturned.join("");
+          else
+            dataReturned = Buffer.concat(dataReturned);
           saveObject.timeDone = Date.now();
           saveObject.ret = res.statusCode;
-          saveObject.res = data;
+          saveObject.res = dataReturned;
           saveObject.ratelimit_data = JSON.stringify(res.headers,null,2);
-          fs.appendFileSync("contacts"+(beta?"beta/":"/")+"latest.log",JSON.stringify(saveObject)+"\n")
+          fs.appendFileSync(logDirectory+"latest.log",JSON.stringify(saveObject)+"\n");
           // Notify if something goes wrong
           if (res.statusCode>=400 && !path.includes("883172908418084954")) { // prevent spam on retrying send message failures.
-            let msg = data;
-            if (!isText) msg = ""+msg
+            let msg = ""+dataReturned;
             sendMessage("883172908418084954", {"embeds":[{
                 "author":{"name":method+" Failed"},
                 "title":"http error "+res.statusCode,
@@ -787,16 +790,14 @@ function discordRequest(path, data=null, method=null, attachments=null, isText=t
       }).on('error',err=>{
         saveObject.timeDone = Date.now();
         saveObject.err = err;
-        fs.appendFileSync("contacts"+(beta?"beta/":"/")+"latest.log",JSON.stringify(saveObject)+"\n")
+        fs.appendFileSync(logDirectory+"latest.log",JSON.stringify(saveObject)+"\n");
         console.error(err);
         if (!path.includes("883172908418084954")) // prevent spam on retrying send message failures.
-          sendMessage("883172908418084954",err.toString().substring(0,4000))
+          sendMessage("883172908418084954",err.toString().substring(0,4000));
         reject(err);
       });
-    if (data !== null) {
+    if (data != null) {
       req.write(data);
-    } else {
-      multipartdata.forEach(data => req.write(data))
     }
     req.end();
   });
@@ -952,8 +953,8 @@ function isStaff(uid, gid) {
     return true;
   let member = memberMap.get(gid).get(uid);
   return (member && (
-      member.roles.includes(r_mod) || member.roles.includes(r_modling) ||
-      member.roles.includes(r_anp_mod)
+      member.roles.includes(r_mod)
+      || member.roles.includes(r_modling)
     ));
 }
 
@@ -1251,9 +1252,9 @@ modules.joinMessages = {
   name: "joinMessages",
   description: "Sends a welcome message when a user joins a server, and notes their passing when they leave.",
 
-  guildJoinChannels:  new Map([["713127035156955276","713444513833680909"]  //wofcs
+  guildJoinChannels:  new Map([[g_wofcs, "713444513833680909"]  //wofcs
                                ]),
-  guildJoinAuditChannels: new Map([["713127035156955276","750509276707160126"], //wofcs
+  guildJoinAuditChannels: new Map([[g_wofcs, c_audit], //wofcs
                               ]),
   messagesJoin: ['Please welcome {USER} to Pyrrhia!',
                  'Please welcome {USER} to Pantala!',
@@ -1349,7 +1350,7 @@ modules.inviteLogging = {
   name: "inviteLogging",
   description: "Watches for invites being created, used, or deleted. Useful to see who invited a raid.",
   inviteMap: new Map(),
-  guildInviteLogChannels: new Map([["713127035156955276","750509276707160126"], //wofcs
+  guildInviteLogChannels: new Map([[g_wofcs,c_audit], //wofcs
                               ]),
   onDispatch: (bot,msg) => {
     let map = modules.inviteLogging.inviteMap;
@@ -1526,7 +1527,7 @@ modules.disboardReminder = {
 modules.threadLogging = {
   name: "threadLogging",
   description: "Watches for threads being created, renamed, deleted, or archived.",
-  guildThreadLogChannels: new Map([["713127035156955276","750509276707160126"], //wofcs
+  guildThreadLogChannels: new Map([[g_wofcs,"870500800613470248"], //wofcs
                             ]),
   threadChangesToIgnore: ["member_count","message_count","last_message_id","thread_metadata.archive_timestamp"],
   onDispatch: (bot, msg) => {
@@ -2099,7 +2100,7 @@ modules.whois = {
         replyToMessage(msg.d,JSON.stringify(uid)+" is not a valid user id!");
         return;
       }
-      let webhook = modules.webhookWatch.webhookMap?.get(msg.d.guild_id)?.[uid];
+      let webhook = modules.webhookWatch.webhookMap?.get(msg.d.guild_id)?.find(a=>a.id===uid);
       if (webhook)
         modules.whois.part2webhook(msg,webhook.id,webhook);
       else {
@@ -2302,7 +2303,7 @@ modules.whatis = {
     }
 
     // Webhook
-    let webhook = modules.webhookWatch.webhookMap?.get(msg.d.guild_id)?.[snowflake];
+    let webhook = modules.webhookWatch.webhookMap?.get(msg.d.guild_id)?.find(wh=>wh.id===snowflake);
     let webhookFound = webhook?"**Found**":"_Unknown_"
     if (!webhook) {
       let req = await discordRequest('webhooks/'+snowflake)
@@ -2313,10 +2314,9 @@ modules.whatis = {
           webhook = JSON.parse(req.res);
           let gid = webhook.guild_id;
           let whm = modules.webhookWatch.webhookMap;
-          if (!whm?.has(gid)) whm.set(gid,Object.fromEntries([[snowflake,webhook]]));
+          if (!whm?.has(gid)) whm.set(gid,[webhook]);
           else {
-            whmg = whm?.get(gid);
-            if (whmg) whmg[snowflake] = webhook
+            whmg = whm?.get(gid).set(snowflake,webhook);
           }
         break;  default: webhookFound = "_Unknown (Error: "+req.ret+")_";
       }
@@ -2510,7 +2510,7 @@ modules.listModules = {
     if (first !== "listmodules" && first !== "modules")
       return;
     // with description is too long
-    replyToMessage(msg.d,bot.modules.map(a=>a?.name/*`${a?.name} - ${a?.description}`*/??"{unknown or removed module}").join("\n"))
+    replyToMessage(msg.d,`Firework ${version}:\n`+bot.modules.map(a=>"- "+a?.name??"- {unknown or removed module}").join("\n"))
   }
 }
 
@@ -2518,8 +2518,9 @@ modules.webhookWatch = {
   name: "webhookWatch",
   description: "Like threadwatch, but watches for webhooks being created, changed, or deleted. Keep a watch for hacked webhooks!",
   webhookMap: new Map(), // gid -> {wid: wobj} // to be diffable
+  webhookChangesToIgnore: new Set(['token', 'url']),
   onDispatch: (bot,msg) => {
-    let m = modules.webhookWatch;
+    const m = modules.webhookWatch;
     if (msg.t === "GUILD_CREATE") {
       let gid = msg.d.id;
       cq.add(cq.medium,()=>discordRequest("guilds/"+gid+"/webhooks")
@@ -2528,7 +2529,7 @@ modules.webhookWatch = {
           if (a.ret != 200)
             return console.error("Guild webhooks failed to load: "+gid);
           let webhooksLoaded = JSON.parse(a.res);
-          m.webhookMap.set(gid,Object.fromEntries(webhooksLoaded.map(a=>[a.id,a]).sort()))
+          m.webhookMap.set(gid,webhooksLoaded);
         }));
       cq.attempt();
     }
@@ -2547,31 +2548,51 @@ modules.webhookWatch = {
       return;
     if (Object.keys(msg.d).length==2 && msg.d.guild_id && msg.d.channel_id) {
       let gid = msg.d.guild_id;
+      let cid = msg.d.channel_id;
 
       cq.add(cq.medium,()=>discordRequest("guilds/"+gid+"/webhooks").then(res=>{
-        let message = {embeds:[{color:5797096,title:"Webhooks Changed",
-              description:"A webhook was changed"+(msg.d.channel_id?" in <#"+msg.d.channel_id+">":"")+"."}]}
-        let diffText = "Unknown changes. See firework logs."
         let original = m.webhookMap.get(gid);
-        let changed = Object.fromEntries(JSON.parse(res.res).map(a=>[a.id,a]).sort())
-        try {
-          let diffo = getDiffObj(original,changed)
-          let diffs = getDiffsFromDiffObj(diffo)
-          diffText = []
-          diffs = diffs.filter(a=>{return modules.threadLogging.threadChangesToIgnore.indexOf(a[1].join("."))==-1})
-          diffs.forEach(a=>diffText.push(a[1].join('.')+" -> "+diffToText(getWithin(diffo,a[1]))))
-          diffText = "Attributes changed ("+diffs.length+"): \n> "+diffText.join("\n> ")
-        } catch (e) {console.error("Diff failed:",e)}
-
-        message.embeds[0].description+="\n\n"+diffText;
-
-        if (modules.threadLogging.guildThreadLogChannels.has(msg.d.guild_id))
-          sendMessage(modules.threadLogging.guildThreadLogChannels.get(msg.d.guild_id),message).then(a=>console.log(a));
-
-        m.webhookMap.set(gid,changed);
+        let changed = JSON.parse(res.res);
+        m.announceWebhookChange(original, changed, cid, gid)
       }));
       cq.attempt();
     }
+  },
+  announceWebhookChange: (original, changed, cid, gid)=>{
+    const m = modules.webhookWatch;
+    let message = {embeds:[{color:5797096,title:"Webhook Changed",
+          description:"A webhook was changed"+(cid?" in <#"+cid+">":"")+"."}]}
+    let diffText = "Unknown changes. See firework logs."
+
+    const prep = (arr) => Object.fromEntries(arr.filter(wh=>wh?.channel_id===cid).map(wh=>[wh.id,wh]).sort());
+    let [before,after] = [prep(original),prep(changed)];
+    fs.writeFileSync("blob.json",JSON.stringify({before,after,cid,gid}));
+    let diffo = getDiffObj(before,after);
+    let diffs = getDiffsFromDiffObj(diffo)
+    diffText = []
+    diffs.forEach(a=>{
+      let isBaseLevel = a[1].length === 1;
+      let shouldIgnore = m.webhookChangesToIgnore.has(a[1].slice(1).join("."));
+      if (shouldIgnore)
+        diffText.push(`${a[1].join(".")} -> [Change omitted]`);
+      else if (isBaseLevel) {
+        let {name,id,avatar,application_id,user} = getWithin(diffo,a[1])[1];
+        let changes = Object.entries({name,id,avatar,application_id,user_username:user?.username,user_id:user?.id}).filter(a=>a[1]!=null);
+        let createdOrDeleted = "Webhook " + (a[0]==="RIGHT"?"Created":"Deleted");
+        diffText.push(`${createdOrDeleted} -> ${JSON.stringify(Object.fromEntries(changes))}`);
+        message.embeds[0].title = createdOrDeleted;
+      }
+      else
+        diffText.push(a[1].join('.')+" -> "+diffToText(getWithin(diffo,a[1])));
+    });
+    diffText = "Attributes changed ("+diffs.length+"): \n> "+diffText.join("\n> ")
+
+    message.embeds[0].description+="\n\n"+diffText;
+
+    if (modules.threadLogging.guildThreadLogChannels.has(gid))
+      sendMessage(modules.threadLogging.guildThreadLogChannels.get(gid),message).then(a=>console.log(a));
+
+    m.webhookMap.set(gid,changed);
   }
 }
 
@@ -2640,6 +2661,7 @@ modules.vcjoins = {
   description: "Send messages when someone joins or leaves a vc. Dyno's embeds were duplicated.",
   vcjoinGuildMap: new Map([
     [g_anp, "1186142332286947389"], // ANP, coffee-table
+    [g_wofcs, c_audit]
   ]),
   onCallMap: new Map(),
   onDispatch:(bot,msg)=>{
@@ -2695,7 +2717,7 @@ modules.messageAudits = {
   name: "messageAudits",
   description: "Audit log for removed messages.",
   auditLogChannels: new Map([
-      [g_anp, "1186187875189018634"] // ANP#audit-log
+      [g_anp, c_anp_audit] // ANP#audit-log
     ]),
   onDispatch: (bot,msg)=>{
     let m = modules.messageAudits;
@@ -3180,7 +3202,6 @@ if (!beta) {
 
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
-  // bot.addModule(tempModules.directMessages) //
   // bot.addModule(tempModules.sendPregeneratedMessageSet) //
 
   bot.modulesPre.push(modules.userMemoryPre);
@@ -3197,22 +3218,22 @@ if (beta) {
   bot.addModule(modules.inviteLogging) // required for some logic
   // bot.addModule(modules.disboardReminder) //
   // bot.addModule(modules.threadLogging) //
-  // bot.addModule(modules.infoHelpUptime)
-  // bot.addModule(modules.embeds)
+  // bot.addModule(modules.infoHelpUptime) //
+  // bot.addModule(modules.embeds) //
   // bot.addModule(modules.threadAlive) //
   // bot.addModule(modules.xp) //
   bot.addModule(modules.saveLoad)
-  // bot.addModule(modules.whois)
-  // bot.addModule(modules.whatis)
-  bot.addModule(modules.boosters) // broken atm
+  // bot.addModule(modules.whois) //
+  // bot.addModule(modules.whatis) //
+  // bot.addModule(modules.boosters) // broken atm
   bot.addModule(modules.listModules)
   bot.addModule(modules.webhookWatch) // required for some logic
-  bot.addModule(modules.newxp);
+  // bot.addModule(modules.newxp);
   bot.addModule({name:"autocomplete",description:"temp implementation",onDispatch:(bot,msg)=>{if(msg.t=="INTERACTION_CREATE"){respondSlash(msg.d)}}});
+  // bot.addModule(modules.directMessages)
 
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
-  bot.addModule(tempModules.directMessages) //
   // bot.addModule(tempModules.sendPregeneratedMessageSet) //
 
   bot.modulesPre.push(modules.userMemoryPre);
