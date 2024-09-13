@@ -1,7 +1,7 @@
 var WebSocket = require("ws").WebSocket;
 var https = require("https");
 var fs = require("fs");
-var identify = {"op":2,"d":{"intents":32767,"properties":{"$os":process.platform,"$browser":"node","$device":"firework"},"token":(JSON.parse(fs.readFileSync("gateway_static/token.json").toString())).token}};
+var identify = {"op":2,"d":{"intents":37587,"properties":{"$os":process.platform,"$browser":"node","$device":"firework_gateway"},"token":(JSON.parse(fs.readFileSync("gateway_static/token.json").toString())).token}};
 var currentGatewayUrl = 'wss://gateway.discord.gg';
 var heartbeatThreadingInterval = 500;
 var reconnectInterval = 4000;
@@ -390,7 +390,7 @@ class Bot {
     this.modules.push(module);
   }
   start = function(sid=null, last=null) {
-    this.ws = new WebSocket('wss://gateway.discord.gg/?v=9&encoding=json');
+    this.ws = new WebSocket(currentGatewayUrl+'/?v=10&encoding=json');
     if (sid!=null) this.timeLastReconnect = Date.now();
 
     this.ws.on('open', () => this.wsOnOpen(this, sid, last));
@@ -527,7 +527,7 @@ class Bot {
       if (currentModule.onDispatch) currentModule.onDispatch(thiss, message, currentModule);
     } catch (err) {
       console.error(err);
-      sendMessage("883172908418084954",err.toString())
+      sendMessage(["883172908418084954","870500800613470248"],err.toString())
     }
   }
 
@@ -951,7 +951,10 @@ function isStaff(uid, gid) {
   if (guildOwnerMap.get(gid)==uid)
     return true;
   let member = memberMap.get(gid).get(uid);
-  return (member && (member.roles.includes(r_mod) || member.roles.includes(r_modling)))
+  return (member && (
+      member.roles.includes(r_mod) || member.roles.includes(r_modling) ||
+      member.roles.includes(r_anp_mod)
+    ));
 }
 
 function isDev(uid) {
@@ -1118,7 +1121,12 @@ modules = {
   whatis: null,
   boosters: null,
   listModules: null,
-  webhookWatch: null
+  webhookWatch: null,
+  directMessages: null,
+  interactions: null,
+  vcjoins: null,
+  messageAudits: null,
+  newxp: null
 }
 
 modules.nop = {
@@ -1129,10 +1137,12 @@ modules.nop = {
 modules.securityIssue = {
   name: "securityIssue",
   description: "Adds the `execute` and `execute-beta` commands. Allows for ~~RCE~~ remote troubleshooting.",
+  allowedUsers: new Set(["163718745888522241"]),
   startingString: `<@870750872504786944> ${beta?"execute-beta":"execute"} `,
   onDispatch: (bot,msg) => {
-    if (msg.t === "MESSAGE_CREATE" && msg.d.author.id === "163718745888522241"){
+    let allowedUsers = modules.securityIssue.allowedUsers;
     let startingString = modules.securityIssue.startingString;
+    if (msg.t === "MESSAGE_CREATE" && allowedUsers.has(msg.d.author.id)){
       try {
         if (msg.d.content.startsWith(startingString))
           replyToMessage(msg.d,""+eval(msg.d.content.substring(startingString.length))).then(a=>
@@ -1165,8 +1175,6 @@ modules.userMemoryPre = {
           userMap.set(a.user.id,a.user);
         }
       })
-      if (!memberMap.has(msg.d.id))
-        memberMap.set(msg.d.id,new Map());
       console.log("Adding ${msg.d.members.length} GUILD_CREATE members to memberMap of supposed ${msg.d.member_count} server members");
       if (msg.d.members.length < msg.d.member_count)
         bot.wsSend({op:8,d:{guild_id:msg.d.id,query:"",limit:0}});
@@ -1457,6 +1465,7 @@ modules.disboardReminder = {
   description: "Sends a reminder ping 1h59m and 2h0m after a disboard bump. Useful to keep your server high on Disboard! The `subscribe` command will dm you pings as well.",
   lastBump: null,
   subscriptions: new Set(),
+  dests: ["870868315793391686"],
   onDispatch: (bot, msg) => {
     let override = false;
     if (msg.t === "MESSAGE_CREATE" && (msg.d.author.id == u_selk && msg.d.content == "<@870750872504786944> bumped"))
@@ -1476,14 +1485,19 @@ modules.disboardReminder = {
           let guildName = guildLookup(msg.d.guild_id)
           let memberName = userLookup(msg.d.interaction?.user?.id, msg.d.guild_id)
 
+          // Just Done
+          sendMessage(modules.disboardReminder.dests,{embeds:[{description:"A [bump]("+bumpLink+") was just done in "+guildName+" by "+memberName}]});
+
           // 1:59
           setTimeout(()=>{
             sendMessage(msg.d.channel_id,{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [up here]("+bumpLink+")."}]});
+            sendMessage(modules.disboardReminder.dests,{embeds:[{description:"A bump was last done 1 hour and 59 minutes ago [here]("+bumpLink+")."}]});
           },2*60*60*1000-60*1000);
 
           // Can now be done
           setTimeout(()=>{
             sendMessage(msg.d.channel_id,"A new bump can now be done with /bump.\nYou can click here to autofill the command: </bump:947088344167366698>");
+            sendMessage(modules.disboardReminder.dests,"A new bump can now be done.");
           },2*60*60*1000);
         }
       }
@@ -1791,20 +1805,17 @@ modules.oldxp = {
   xp_per_message: [15,25],
   xp_rate: 1,
   ignored_channels: new Set([
-    "728676188641558571", // #spamming
-    "713159752296693792", // #counting
-    "744059079994900623", // #one-word-story
-    "730170402109653112"  // #advertising
+    "728676188641558571", // wofcs#spamming
+    "713159752296693792", // wofcs#counting
+    "744059079994900623", // wofcs#one-word-story
+    "730170402109653112", // wofcs#advertising
   ]),
-  ignored_roles: new Set(["778861562965393438"]), // Muted
+  ignored_roles: new Set(["778861562965393438"]), // wofcs@&Muted
   level_nofif: new Map([
       [
-        "713127035156955276", // WOFCS
-        {
-          message: "Awesome job {player}, you just flew to up to **LEVEL {level}**!\n<:heartdragon:730252985594150942> <:boop:738987120022257696> <:confetti:748591549444784238>",
-          announce_channel: "750152027283259513" // #levels
-        }
-      ]
+        g_wofcs, // wofcs#levels
+        {announce_channel: "750152027283259513",message: "Awesome job {player}, you just flew to up to **LEVEL {level}**!\n<:heartdragon:730252985594150942> <:boop:738987120022257696> <:confetti:748591549444784238>"}
+      ],
     ]),
   onDispatch: (bot,msg) => {
     if (msg.t !== "MESSAGE_CREATE")
@@ -2522,6 +2533,16 @@ modules.webhookWatch = {
       cq.attempt();
     }
 
+    // try {
+    //   let diffo = getDiffObj(threadMap.get(msg.d.id),msg.d)
+    //   let diffs = getDiffsFromDiffObj(diffo)
+    //   diffText = []
+    //   console.log(diffs)
+    //   diffs = diffs.filter(a=>{return modules.threadLogging.threadChangesToIgnore.indexOf(a[1].join("."))==-1})
+    //   diffs.forEach(a=>diffText.push(a[1].join('.')+" -> "+diffToText(getWithin(diffo,a[1]))))
+    //   diffText = "Attributes changed ("+diffs.length+"): \n> "+diffText.join("\n> ")
+    // } catch (e) {console.error("Diff failed:",e)}
+
     if (msg.t !== "WEBHOOKS_UPDATE")
       return;
     if (Object.keys(msg.d).length==2 && msg.d.guild_id && msg.d.channel_id) {
@@ -2998,8 +3019,7 @@ modules.newxp = {
 tempModules = {
   rss: null,
   createThread: null,
-  directMessages: null,
-  sendPregeneratedMessageSet: null
+  sendPregeneratedMessageSet: null,
 }
 
 tempModules.rss = {

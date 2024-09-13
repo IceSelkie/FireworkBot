@@ -1,0 +1,11 @@
+#!/usr/bin/node
+
+fs=require("fs");
+eval(""+fs.readFileSync("gateway.js"));
+eval(""+fs.readFileSync("diff.js"));
+latestVersion = 1;
+try { latestVersion=Number(fs.readFileSync("start.json")) || 1; } catch (e) {};
+version+=latestVersion;
+load();
+try { fs.writeFileSync("start.json", (latestVersion + 1).toString()); } catch (e) {};
+bot.start();
