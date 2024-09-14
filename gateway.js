@@ -23,7 +23,7 @@ var sents = [];
 var SAVECRASHCATCHDUMP = null;
 var FORCE_OCCASIONAL_SAVE = false;
 var beta = false; // sets which set of modules to use (prevents spam when debugging)
-var version = (beta?'β':'v')+'1.38.';
+var version = (beta?'β':'v')+'1.39.';
 
 // privilaged intents codes:
 //  w/o       w/
@@ -2869,7 +2869,7 @@ modules.newxp = {
       return "Interaction XP";
     if (msg.t=="MESSAGE_CREATE" && msg.d.content.startsWith("<@870750872504786944> ")){
       let command = msg.d.content.split(" ").slice(1).join(" ");
-      let ret = [...(
+      let parsedCommand = [...(
         //                         add/del   name
         command.match(/^xp( sets)( [^ ]+)?( [^ ]+)?$/) ??
         //                              set      tag     value
@@ -2882,9 +2882,9 @@ modules.newxp = {
         command.match(/^(leaderboard)( .+)?$/) ??
         []
       )];
-      ret = ret.slice(1).filter(a=>a).map(a=>a.trim());
-      console.log(ret);
-      return ret;
+      parsedCommand = parsedCommand.slice(1).filter(a=>a).map(a=>a.trim());
+      console.log({command,parsedCommand});
+      return parsedCommand;
     }
   },
   respondToQuery:(m, query, msg)=>{
@@ -2901,26 +2901,27 @@ modules.newxp = {
   queryGetRank:(m, query, msg)=>{
     console.log({queryGetRank:query});
     const gid = msg.d.guild_id;
-    let uid = msg.d.author.id;
+    let uid = query[1] ?? msg.d.author.id;
+    let member = memberMap.get(gid)?.get(uid);
     let now = snowflakeToTime(msg.d.id);
-    let {pts,lvl,ptsNeeded} = m.findXp(m, gid, uid, now);
-    let user = msg.d.author;
-    console.log("User retrieved:",{pts,lvl,ptsNeeded});
+    let {pts,lvl,ptsNeeded} = m.findXp(m, gid, uid, now) ?? {};
+    console.log("User retrieved:",{gid,uid,pts,lvl,ptsNeeded});
 
     // Todo: respect nickname/displayname
     // Todo: respect server pfp
-    let xp_message = {embeds:[
+    let avatar = /*member.avatar??*/member?.user.avatar;
+    let xp_message = member&&pts>0?{embeds:[
         {
           color:5797096,
-          author:{name:user.username+"'s Server XP"},
+          author:{name:member?.user.username+"'s Server XP"},
           timestamp: new Date(now).toISOString(),
-          thumbnail: user.avatar?{url: "https://cdn.discordapp.com/avatars/"+user.id+"/"+user.avatar+".webp?size=320"}:undefined,
+          thumbnail: avatar?{url: "https://cdn.discordapp.com/avatars/"+member?.user.id+"/"+avatar+".webp?size=320"}:undefined,
           fields: [
             {name:`Level ${lvl}`,value:`${Math.floor(pts)} points (${Math.ceil(ptsNeeded)} to next level)`},
             // {name:"Progress",value:remxp+"/"+levelXpReq+" ("+percent+"%) to level "+(xpobj.lvl+1)}
           ]
         }
-      ]};
+      ]}:{content:`User ${JSON.stringify(uid)} not found...`};
     replyToMessage(msg, xp_message);
   },
   querySettings:(m, query, msg)=>{
@@ -2941,24 +2942,73 @@ modules.newxp = {
       replyToMessage(msg.d, "```json\n"+m.settingsDisplayable(m, set)+"\n```");
     }
   },
+  leaderboardCache: new Map(),
   queryLeaderboard:(m, query, msg)=>{
     console.log({queryLeaderboard:query});
     const {data} = m;
     const gid = msg.d.guild_id;
     const now = snowflakeToTime(msg.d.id);
     const members = [...memberMap.get(gid).keys()];
+    const pageSize = 20;
+    let pageRequested = !isNaN(+query[1]);
+    let page = pageRequested? +query[1]-1 : 0;
 
-    let content = (members.map(uid=>[uid,m.findXp(m, gid, uid, now)])
-      // keeping values with more than 1xp (we use floor later, not round)
-      .filter(a=>a[1]?.pts>=1)
-      // sort by current XP
-      .sort((a,b)=>b[1].pts-a[1].pts)
-      // Convert to userid and integer xp amount
-      .map(([uid,{pts,lvl}])=>[uid,Math.floor(pts),lvl])
-      // Take the top 20
-      .slice(0,20)
-      // Convert to string format of: "${place} - Level ${lvl} (${xp} messages) - @${user}"
-      .map(([uid,pts,lvl],i)=>`${String(i+1).padStart(2," ")} — Level ${lvl} (${pts} xp) — <@${uid}>`)
+    // Recalculate at most once per minute.
+    const cachedLeaderboard = m.leaderboardCache.get(gid);
+    const useCached = cachedLeaderboard?.time + 60*1000 > now;
+    let content = useCached ? cachedLeaderboard.content : null;
+
+    if (!content) {
+      content = (members
+        .map(uid=>[uid,m.findXp(m, gid, uid, now)])
+        // keeping values with more than 1xp (we use floor later, not round)
+        .filter(a=>a[1]?.pts>=1)
+        // sort by current XP
+        .sort((a,b)=>b[1].pts-a[1].pts)
+        // Convert to userid and integer xp amount
+        .map(([uid,{pts,lvl}],index)=>{return {uid,pts:Math.floor(pts),lvl,index}}));
+    }
+    let totalPages = Math.ceil(content.length / pageSize);
+    if (!useCached) m.leaderboardCache.set(gid, {time:now, content});
+
+    if (page < 0 || page > totalPages) {
+      pageRequested = false;
+      page = 0;
+    }
+
+    const startIndex = page*pageSize;
+    const endIndex = page*pageSize + pageSize;
+
+    // Show requester's rank if they didnt specify a page and they are not on the first page. 
+    let requesterContent = content.find(({uid})=>uid===msg.d.author?.id);
+    let requesterIndex = requesterContent?.index;
+    const showRequester = query[1]===undefined && requesterIndex>=endIndex;
+
+    content = (content
+      // Slice to the requested page
+      .slice(startIndex, endIndex));
+
+    // Add the requester if they arent there already
+    if (showRequester)
+      content.push(requesterContent);
+
+    content = (content
+      .map(({uid,pts,lvl,index},i,arr)=>{
+        let member = memberMap.get(msg.d.guild_id)?.get(uid);
+        let name = member.nick??member.user.global_name??member.user.username;
+        // Convert to string format of: "${place} - Level ${lvl} (${xp} messages) - @${user}"
+        let ret = `${String(index+1).padStart(2," ")} — Level ${lvl} (${pts} xp) — ${name.split(/([_*\\~])/g).map((a,i)=>i%2==1?"\\"+a:a).join("")}`;
+
+        // Bold the requester's line
+        if (uid === msg.d.author?.id)
+          ret = `**${ret}**`;
+
+        // If theres a gap, add a "..."
+        if (i>0 && arr[i-1].index != index-1)
+          ret = "...\n"+ret;
+
+        return ret;
+      })
       .join("\n"));
 
     let lb_message = {embeds:[
@@ -2966,8 +3016,8 @@ modules.newxp = {
           color: 5797096,
           title: "Server XP Leaderboard",
           description: content,
-          // footer:{text:d.author.id},
-          timestamp: new Date(now).toISOString()
+          footer:{text:`Page ${page+1}` + (!useCached?" | Recalculated!":"")},
+          timestamp: new Date(useCached?cachedLeaderboard?.time:now).toISOString()
         }
       ]};
     replyToMessage(msg, lb_message);
