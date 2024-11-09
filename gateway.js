@@ -23,7 +23,7 @@ var sents = [];
 var SAVECRASHCATCHDUMP = null;
 var FORCE_OCCASIONAL_SAVE = false;
 var beta = false; // sets which set of modules to use (prevents spam when debugging)
-var version = (beta?'β':'v')+'1.39.';
+var version = (beta?'β':'v')+'1.40.';
 
 // privilaged intents codes:
 //  w/o       w/
@@ -161,11 +161,13 @@ load = function(path = "gateway_data") {
     console.log("Subscriptions list loaded.")
   } else console.error("Data 'subscribed' JSON doesnt exist! Cannot read the Data That Typically Changes!");
 
-  try{
-    let m = bot.modules.find(a=>a.name=="newxp");
-    if (m)
+  const newSave = new Set(["newxp", "floatMessage"]);
+  bot.modules.filter(m=>newSave.has(m.name)).forEach(m=>{
+    try{
       m.load(m,path);
-  } catch (e) {console.error(e)}
+      console.log(`Loaded: ${m.name}`);
+    } catch (e) {console.error(`Module ${m.name}:`,e)}
+  });
 }
 save = function(path = "gateway_data") {
     // Typically Unchanging
@@ -201,12 +203,14 @@ save = function(path = "gateway_data") {
       ),null,2));
     console.log("Subscriptions list saved.");
   } catch (e) {console.error(e)}
-  try {
-    let m = bot.modules.find(a=>a.name=="newxp");
-    if (m) {
+
+  const newSave = new Set(["newxp", "floatMessage"]);
+  bot.modules.filter(m=>newSave.has(m.name)).forEach(m=>{
+    try{
       m.save(m,path);
-    }
-  } catch (e) {console.error(e)}
+      console.log(`Saved: ${m.name}`);
+    } catch (e) {console.error(`Module ${m.name}:`,e)}
+  });
 }
 
 
@@ -952,10 +956,12 @@ function isStaff(uid, gid) {
   if (guildOwnerMap.get(gid)==uid)
     return true;
   let member = memberMap.get(gid).get(uid);
-  return (member && (
+  if (!member)
+    return false;
+  return (
       member.roles.includes(r_mod)
       || member.roles.includes(r_modling)
-    ));
+    );
 }
 
 function isDev(uid) {
@@ -1127,7 +1133,9 @@ modules = {
   interactions: null,
   vcjoins: null,
   messageAudits: null,
-  newxp: null
+  newxp: null,
+  tickets: null,
+  floatMessage: null
 }
 
 modules.nop = {
@@ -1622,6 +1630,7 @@ modules.infoHelpUptime = {
           hasModuleWhois = bot.modules.filter(a=>a.name==="whois").length>0;
           hasModuleBoosters = bot.modules.filter(a=>a.name==="boosters").length>0;
           hasModuleListModules = dev && bot.modules.filter(a=>a.name==="listModules").length>0;
+          hasModuleFloatMessage = staff && bot.modules.filter(a=>a.name==="floatMessage").length>0;
 
           replyToMessage(msg.d,"Firework bot ("+version+")\n"
             +`(You have the following flags: ${staff?"staff, ":""}${dev?"dev, ":""})\n`
@@ -1656,6 +1665,9 @@ modules.infoHelpUptime = {
             +(!hasModuleListModules?"":
              "> "+"List Modules Module Commands:\n"+
              "> "+" • `listmodules` - Lists the modules that Firework currently has active\n")
+            +(!hasModuleFloatMessage?"":
+             "> "+"Float Message Module Commands:\n"+
+             "> "+" • `float` - Reply to a message to enable or disable it floating in that channel.")
           )
         }
       }
@@ -3080,6 +3092,148 @@ modules.newxp = {
 }
 
 
+modules.tickets = {
+  name: "tickets",
+  description: "Private tickets from dropdown interaction",
+  onDispatch: async (bot, msg) => {
+    // Only respond to INTERACTIONs
+    if (msg.t !== "INTERACTION_CREATE") return;
+    const { data, channel_id, member, id, token, guild_id } = msg.d;
+    if (data.custom_id !== 'wofcs-tickets') return;
+
+    const ticketType = data.values?.[0];
+    if (!ticketType) return;
+
+    const userName = member.nick || member.user.global_name || member.user.username;
+    const threadName = `[${ticketType}] ${userName}`;
+
+    // Create thread
+    const threadRes = await discordRequest(`channels/${channel_id}/threads`, {
+      type: 12,
+      invitable: false,
+      auto_archive_duration: 24*60, // auto_archive_duration is in MINUTES!
+      name: threadName
+    }, "POST");
+
+    try {
+      const thread = JSON.parse(threadRes.res);
+      // console.log({status:"Returned",thread});
+
+      const threadLink = `https://discord.com/channels/${guild_id}/${thread.id}`;
+
+      // Send the first message to the thread
+      discordRequest(`channels/${thread.id}/messages`, {
+        content: `<@${member.user.id}>, please describe your ${data.values[0].toLowerCase()} here.\n\nA <@&724461190897729596> will be with you soon.`
+      }, "POST");
+
+      // Respond to the interaction with the thread link
+      discordRequest(`interactions/${id}/${token}/callback`, {
+        type: 4,
+        data: {
+          flags: 1 << 6, // Ephemeral
+          content: `Your ticket is available here: ${threadLink}`
+        }
+      }, "POST", null, true, false); // null attachments, true utf8 result expected (not binary), false (dont send bot token, use interaction callback token)
+    } catch (e) {
+      discordRequest(`interactions/${id}/${token}/callback`, {
+        type: 4,
+        data: {
+          flags: 1 << 6, // Ephemeral
+          content: `There was an issue creating the ticket. Please try again later.`
+        }
+      }, "POST", null, true, false);
+    }
+  }
+}
+
+modules.floatMessage = {
+  name: "floatMessage",
+  description: "Floats a message to the bottom of a text channel",
+  
+  // Internal storage for float data: channel_id -> [ {last_message_id,message} ]
+  floats: new Map([
+    ["1302608148833501247",[
+      {last_message_id:"-1",message:{"embeds":[{"title":"Welcome to #polls!","description":"You can ask everyone polls here! Occasionally a QOTD will be posted here and ping the @QOTD Pings role.","color":10643968,"fields":[{"name":"Using Threads","value":"To prevent clutter, please use threads for responses to and discussion about each poll."}]}]}},]],
+  ]),
+
+  onDispatch: (bot, msg) => {
+    modules.floatMessage.updateFloats(bot,msg);
+
+    if (msg.t !== "MESSAGE_CREATE" || msg.d.type != 19) return;
+    if (!isStaff(msg.d.author.id,msg.d.guild_id)) return;
+
+    const startString = "<@"+bot.self.id+"> float";
+    const startString2 = "<@!"+bot.self.id+"> float";
+    if (msg.d.content === startString || msg.d.content === startString2) {
+      const floats = modules.floatMessage.floats;
+      const messageToFloat = msg.d.referenced_message;
+      let thisChannel = floats.get(msg.d.channel_id);
+      if (!thisChannel) {
+        thisChannel = [];
+        floats.set(msg.d.channel_id, thisChannel);
+      }
+      const quotedFloat = thisChannel.find(a=>a.last_message_id === msg.d.referenced_message.id);
+      if (quotedFloat) {
+        thisChannel.splice(thisChannel.indexOf(quotedFloat),1);
+        replyToMessage(msg.d,`Float has been removed. ${thisChannel.length} remain for this channel.`);
+      } else {
+        thisChannel.push({last_message_id:"-1",message:messageToFloat});
+        replyToMessage(msg.d,`Float has been added. ${thisChannel.length} floats are assigned to this channel.`);
+      }
+    }
+  },
+
+  updateFloats: async (bot, msg) => {
+    const m = modules.floatMessage;
+    // Define the event types we're interested in
+    const relevantEvents = [
+      "MESSAGE_CREATE",
+      "MESSAGE_UPDATE",
+      "MESSAGE_REACTION_ADD",
+      "MESSAGE_REACTION_REMOVE",
+      "MESSAGE_REACTION_REMOVE_ALL",
+      "MESSAGE_REACTION_REMOVE_EMOJI"
+    ];
+
+    // Early return if the event type is not relevant
+    if (!relevantEvents.includes(msg.t)) return;
+
+    const channel_id = msg.d.channel_id;
+    m.floats.get(channel_id)?.forEach(float=>{
+      const {last_message_id, message} = float;
+      // If its older than the floated message, ignore.
+      if (BigInt(msg.d.message_id ?? msg.d.id) <= BigInt(last_message_id)) return;
+
+      // If its a message and from a bot, ignore
+      if (msg.d.author?.bot) return;
+
+      // Delete old message
+      const deleteEndpoint = `channels/${channel_id}/messages/${last_message_id}`;
+      discordRequest(deleteEndpoint, null, "DELETE");
+
+      // Post the new message
+      const postEndpoint = `channels/${channel_id}/messages`;
+
+      discordRequest(postEndpoint, message, "POST").then(messageRes=>{
+        const newMessage = JSON.parse(messageRes.res);
+        // Update the last_message_id with the new message's ID
+        float.last_message_id = newMessage.id;
+      });
+    });
+  },
+
+  save:(m, dir)=>{
+    fs.writeFileSync(dir+"/float_messages.json",JSON.stringify([...m.floats.entries()]));
+  },
+  load:(m, dir)=>{
+    m.floats = new Map(JSON.parse(fs.readFileSync(dir+"/float_messages.json")));
+  },
+};
+
+
+
+
+
 
 
 
@@ -3248,6 +3402,8 @@ if (!beta) {
   // bot.addModule(modules.interactions); // Doesnt do anything and blocks autocomplete.
   bot.addModule(modules.vcjoins);
   bot.addModule(modules.messageAudits);
+  bot.addModule(modules.tickets);
+  bot.addModule(modules.floatMessage);
 
 
   // bot.addModule(tempModules.rss) //
@@ -3279,8 +3435,9 @@ if (beta) {
   bot.addModule(modules.listModules)
   bot.addModule(modules.webhookWatch) // required for some logic
   // bot.addModule(modules.newxp);
-  bot.addModule({name:"autocomplete",description:"temp implementation",onDispatch:(bot,msg)=>{if(msg.t=="INTERACTION_CREATE"){respondSlash(msg.d)}}});
+  // bot.addModule(modules.tickets); // bot.addModule({name:"autocomplete",description:"temp implementation",onDispatch:(bot,msg)=>{if(msg.t=="INTERACTION_CREATE"){respondSlash(msg.d)}}});
   // bot.addModule(modules.directMessages)
+  // bot.addModule(modules.floatMessage);
 
   // bot.addModule(tempModules.rss) //
   // bot.addModule(tempModules.createThread) //
